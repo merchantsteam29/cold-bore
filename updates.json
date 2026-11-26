@@ -1,0 +1,15 @@
+[
+  {
+    "version": "1.0",
+    "date": "2026-11-26",
+    "title": "COLD BORE",
+    "notes": [
+      "A realistic online multiplayer FPS: Free-for-all, Team Deathmatch and Domination on two maps (Al-Hadra, a desert town, and Kessel Freight Yard, a container port).",
+      "Quick Play finds an online match; if there isn't one, you host one and bots fill the empty places. Bots leave as real players join. Server browser, private matches with a code, and offline vs bots.",
+      "27 real guns at their real prices (a Glock 17 is $550, an M4 $1,150, a Barrett M82 $9,500), real attachments (EOTech, ACOG, suppressors with the $200 tax stamp), melee weapons, grenades, first aid and armour. Kills pay $500 (+$250 headshot) and the money is yours for the match.",
+      "Ballistics: bullet drop, travel time, penetration through walls and bodies, armour levels IIIA / III / IV and helmets that stop what they would really stop.",
+      "Wounds where the rounds land, bleeding you have to treat (bandage, tourniquet, IFAK), limping on a leg hit, shaking aim on an arm hit. Ragdolls. Realistic gore with a slider from 0 (none) to 100.",
+      "Your bank (every dollar you earn) buys uniforms and Cerakote finishes in the Armory. Controllers (Xbox, PlayStation, Steam Deck), installable as an app."
+    ]
+  }
+]

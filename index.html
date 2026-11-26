@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>COLD BORE</title>
+<meta name="description" content="A realistic online multiplayer FPS. Real guns at their real prices, earned from kills. Body-part damage, armour levels, penetration, bleeding, realistic gore with a slider. Free-for-all, Team Deathmatch and Domination, filled with bots when there aren't enough players.">
+<link rel="icon" href="icons/icon.svg">
+<meta name="theme-color" content="#0c0d0c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta property="og:title" content="COLD BORE">
+<meta property="og:description" content="Every gun at its real price. Every round where it lands.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+:root { --ink: #e6e5df; --dim: #8d8f88; --faint: rgba(230, 229, 223, .45); --acc: #d9b25c; --red: #d8382c; --blu: #5aa0ff; --opf: #ff5a4a; --ok: #8fc76a; --line: rgba(230, 229, 223, .14); --panel: rgba(14, 15, 14, .9);
+  --f-big: "Barlow Condensed", "Arial Narrow", sans-serif; --f-body: "Barlow", Arial, sans-serif; --f-mono: "Share Tech Mono", Consolas, monospace; color-scheme: dark; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--ink); font-family: var(--f-body); user-select: none; -webkit-user-select: none; }
+canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+button { font: 600 15px var(--f-big); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); background: rgba(255,255,255,.04); border: 1px solid var(--line); padding: 9px 16px; cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+button:hover, button:focus-visible { background: rgba(217,178,92,.14); border-color: var(--acc); outline: none; }
+button.big { font-size: 22px; padding: 12px 22px; text-align: left; width: 100%; border-color: transparent; background: transparent; }
+button.big:hover, button.big:focus-visible { background: linear-gradient(90deg, rgba(217,178,92,.2), transparent); border-color: transparent; border-left: 3px solid var(--acc); }
+button.primary { background: var(--acc); color: #141210; border-color: var(--acc); }
+button.primary:hover { background: #e8c672; }
+button:disabled { opacity: .35; cursor: default; }
+input, select { font: 500 15px var(--f-body); color: var(--ink); background: rgba(0,0,0,.4); border: 1px solid var(--line); padding: 8px 10px; }
+input[type=range] { padding: 0; accent-color: var(--acc); }
+.screen { position: fixed; inset: 0; z-index: 30; }
+.panel { background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px); }
+.mono { font-family: var(--f-mono); }
+.muted { color: var(--dim); }
+h2 { font: 700 30px var(--f-big); letter-spacing: .08em; margin: 0 0 14px; text-transform: uppercase; }
+h3 { font: 600 17px var(--f-big); letter-spacing: .12em; margin: 18px 0 8px; text-transform: uppercase; color: var(--acc); }
+
+/* ---------- title ---------- */
+#title { background: radial-gradient(ellipse at 70% 40%, rgba(0,0,0,0) 0, rgba(0,0,0,.55) 60%, rgba(0,0,0,.85) 100%); display: grid; grid-template-columns: minmax(320px, 430px) 1fr; }
+#title .left { padding: 6vh 0 4vh 5vw; display: flex; flex-direction: column; gap: 4px; background: linear-gradient(90deg, rgba(0,0,0,.75), rgba(0,0,0,0)); }
+.logo { font: 800 76px/0.85 var(--f-big); letter-spacing: .02em; margin: 0; }
+.logo span { display: block; color: var(--acc); }
+.tag { font: 500 15px var(--f-body); color: var(--dim); margin: 10px 0 26px; max-width: 330px; line-height: 1.45; }
+#title .who { margin-top: auto; display: flex; gap: 10px; align-items: center; font: 500 14px var(--f-body); color: var(--dim); }
+#title .who input { width: 150px; }
+#bankLine { font: 600 18px var(--f-mono); color: var(--acc); margin: 6px 0 0; }
+.side { padding: 6vh 5vw 4vh 2vw; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end; gap: 8px; }
+.side .small { display: flex; gap: 8px; }
+
+/* ---------- dialogs ---------- */
+.dialog { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0,0,0,.55); }
+.dialog > .panel { width: min(760px, 94vw); max-height: 88vh; overflow: auto; padding: 24px 28px; position: relative; }
+.close { position: absolute; top: 12px; right: 12px; padding: 4px 10px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.grid2 { display: grid; grid-template-columns: 180px 1fr; gap: 10px 16px; align-items: center; }
+.grid2 label { color: var(--dim); font-size: 14px; }
+.list { border-top: 1px solid var(--line); }
+.list .it { display: grid; grid-template-columns: 1fr 70px 80px 80px 90px; gap: 10px; padding: 10px 6px; border-bottom: 1px solid var(--line); align-items: center; font-size: 14px; }
+.list .it:hover { background: rgba(255,255,255,.04); }
+.err { color: var(--red); min-height: 20px; font-size: 14px; }
+#status { position: fixed; z-index: 60; left: 50%; top: 40%; transform: translate(-50%, -50%); padding: 18px 28px; font: 600 20px var(--f-big); letter-spacing: .1em; text-transform: uppercase; text-align: center; }
+#status small { display: block; font: 400 14px var(--f-body); letter-spacing: 0; text-transform: none; color: var(--dim); margin-top: 6px; }
+
+/* ---------- armory / buy ---------- */
+.tabs { display: flex; gap: 2px; margin: 0 0 12px; flex-wrap: wrap; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 8px 12px; }
+.tabs button.on { border-bottom-color: var(--acc); color: var(--acc); }
+.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.item { border: 1px solid var(--line); padding: 10px 12px; background: rgba(255,255,255,.025); cursor: pointer; display: flex; flex-direction: column; gap: 4px; min-height: 96px; transition: border-color .1s, background .1s; }
+.item:hover { border-color: var(--acc); background: rgba(217,178,92,.06); }
+.item .nm { font: 600 17px/1.1 var(--f-big); letter-spacing: .03em; }
+.item .ds { font-size: 12.5px; color: var(--dim); line-height: 1.35; flex: 1; }
+.item .pr { font: 500 16px var(--f-mono); color: var(--acc); display: flex; justify-content: space-between; align-items: baseline; }
+.item .pr i { font: 600 12px var(--f-big); letter-spacing: .1em; font-style: normal; color: var(--ok); }
+.item.cant .pr { color: var(--red); }
+.item.own { border-color: rgba(143,199,106,.45); }
+.item.eq { border-color: var(--ok); background: rgba(143,199,106,.08); }
+.item .sw { width: 100%; height: 28px; border: 1px solid var(--line); }
+#buy { position: fixed; z-index: 35; inset: 4vh 4vw; display: flex; flex-direction: column; padding: 18px 22px; }
+#buy .head { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; }
+#buy .money { font: 600 30px var(--f-mono); color: var(--acc); }
+#buy .scroll { overflow: auto; flex: 1; padding-right: 4px; }
+#buy .kit { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+#buy .kit b { color: var(--ink); font-weight: 600; }
+.note { font-size: 12px; color: var(--dim); }
+
+/* ---------- HUD ---------- */
+#hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; font-family: var(--f-big); }
+#compass { position: absolute; top: 14px; left: 50%; width: 420px; margin-left: -210px; height: 26px; overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent); }
+#compass .strip { position: absolute; top: 0; height: 26px; white-space: nowrap; font: 600 14px var(--f-mono); color: var(--faint); }
+#compass .strip span { display: inline-block; width: 30px; text-align: center; }
+#compass .strip span.c { color: var(--ink); font-size: 16px; }
+#compass::after { content: ''; position: absolute; left: 50%; top: 20px; width: 2px; height: 6px; background: var(--acc); }
+#score { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; font: 700 20px var(--f-big); letter-spacing: .06em; text-shadow: 0 1px 3px #000; }
+#score .t { font: 500 18px var(--f-mono); color: var(--ink); min-width: 56px; text-align: center; }
+#score .b { color: var(--blu); } #score .o { color: var(--opf); }
+#flagsH { display: flex; gap: 6px; }
+#flagsH div { width: 30px; height: 30px; border: 2px solid var(--faint); display: grid; place-items: center; font: 700 16px var(--f-big); background: rgba(0,0,0,.3); position: relative; }
+#flagsH div i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--ink); }
+#feed { position: absolute; top: 14px; right: 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font: 600 15px var(--f-big); letter-spacing: .03em; }
+#feed div { background: rgba(0,0,0,.45); padding: 3px 9px; text-shadow: 0 1px 2px #000; }
+#feed .me { background: rgba(217,178,92,.22); }
+#feed .w { color: var(--dim); font-weight: 500; margin: 0 6px; }
+#cash { position: absolute; top: 14px; left: 18px; font: 600 24px var(--f-mono); color: var(--acc); text-shadow: 0 1px 3px #000; }
+#cashFx { position: absolute; top: 44px; left: 18px; display: flex; flex-direction: column; gap: 2px; font: 600 15px var(--f-mono); }
+#cashFx div { color: var(--ok); animation: up 1.8s ease-out forwards; text-shadow: 0 1px 2px #000; }
+@keyframes up { 0% { opacity: 0; transform: translateY(6px); } 12% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }
+#ammo { position: absolute; right: 26px; bottom: 22px; text-align: right; text-shadow: 0 1px 3px #000; }
+#ammo .n { font: 600 46px/1 var(--f-mono); }
+#ammo .r { font: 500 20px var(--f-mono); color: var(--dim); }
+#ammo .g { font: 600 16px var(--f-big); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-top: 4px; }
+#ammo .m { display: inline-block; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--faint); font-size: 13px; color: var(--ink); }
+#utilH { margin-top: 6px; display: flex; gap: 10px; justify-content: flex-end; font: 500 14px var(--f-mono); color: var(--dim); }
+#utilH b { color: var(--ink); }
+#bodyH { position: absolute; left: 22px; bottom: 20px; display: flex; gap: 12px; align-items: flex-end; }
+#bodyH svg { width: 62px; height: 124px; filter: drop-shadow(0 1px 2px #000); }
+#bodyH svg .p { fill: rgba(230,229,223,.55); stroke: rgba(0,0,0,.5); stroke-width: 1; transition: fill .2s; }
+#bodyH .txt { font: 500 14px var(--f-mono); color: var(--dim); line-height: 1.5; text-shadow: 0 1px 2px #000; }
+#bodyH .txt b { color: var(--ink); font: 600 26px var(--f-mono); }
+#bodyH .bleed { color: var(--red); font: 700 14px var(--f-big); letter-spacing: .12em; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+#cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+#cross i { position: absolute; background: rgba(240,240,235,.85); box-shadow: 0 0 2px #000; }
+#cross .d { width: 3px; height: 3px; left: -1.5px; top: -1.5px; border-radius: 50%; }
+#hitm { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px; opacity: 0; transition: opacity .15s; }
+#hitm.on { opacity: 1; transition: none; }
+#hitm i { position: absolute; width: 10px; height: 2px; background: #fff; top: 14px; box-shadow: 0 0 2px #000; }
+#hitm.k i { background: var(--red); } #hitm.h i { background: var(--acc); }
+#hitm i:nth-child(1) { left: -2px; transform: rotate(45deg) translate(-4px, -4px); } #hitm i:nth-child(2) { right: -2px; transform: rotate(-45deg) translate(4px, -4px); }
+#hitm i:nth-child(3) { left: -2px; transform: rotate(-45deg) translate(-4px, 4px); } #hitm i:nth-child(4) { right: -2px; transform: rotate(45deg) translate(4px, 4px); }
+#prompt { position: absolute; left: 50%; top: 60%; transform: translateX(-50%); font: 600 17px var(--f-big); letter-spacing: .08em; text-transform: uppercase; background: rgba(0,0,0,.5); padding: 5px 14px; text-shadow: 0 1px 2px #000; }
+#prompt kbd, .k { font: 600 13px var(--f-mono); border: 1px solid var(--faint); padding: 0 5px; margin-right: 6px; }
+#dmgDir { position: absolute; inset: 0; }
+#dmgDir div { position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; margin: -110px; border-radius: 50%; border-top: 5px solid rgba(220,30,20,.9); opacity: 0; transition: opacity .8s; mask-image: radial-gradient(circle, transparent 60%, #000 61%); }
+#bloodV { position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(90,0,0,.55) 75%, rgba(60,0,0,.95) 100%); transition: opacity .3s; }
+#flashW { position: fixed; inset: 0; z-index: 12; pointer-events: none; background: #fff; opacity: 0; }
+#scope { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+#scope .ring { position: absolute; left: 50%; top: 50%; width: 92vh; height: 92vh; margin: -46vh; border-radius: 50%; box-shadow: 0 0 0 200vmax #000, inset 0 0 6vh 3vh rgba(0,0,0,.95); }
+#scope img, #scope canvas { position: absolute; left: 50%; top: 50%; width: 92vh; height: 92vh; margin: -46vh; }
+#msg { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); font: 700 26px var(--f-big); letter-spacing: .1em; text-transform: uppercase; text-shadow: 0 2px 6px #000; text-align: center; }
+#msg small { display: block; font: 500 16px var(--f-body); letter-spacing: 0; text-transform: none; color: var(--dim); }
+#tags { position: absolute; inset: 0; }
+#minimap { position: absolute; left: 22px; bottom: 160px; width: 150px; height: 150px; border: 1px solid var(--line); background: rgba(0,0,0,.35); border-radius: 50%; overflow: hidden; }
+
+/* ---------- death / scoreboard / end ---------- */
+#death { position: fixed; z-index: 20; left: 50%; bottom: 9vh; transform: translateX(-50%); text-align: center; padding: 16px 26px; min-width: 380px; }
+#death .by { font: 700 28px var(--f-big); letter-spacing: .06em; text-transform: uppercase; }
+#death .how { color: var(--dim); font-size: 15px; margin: 4px 0 12px; }
+#death .row { justify-content: center; }
+#board { position: fixed; z-index: 25; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(820px, 94vw); padding: 18px 22px; }
+#board table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#board th { text-align: left; font: 600 13px var(--f-big); letter-spacing: .12em; color: var(--dim); padding: 4px 6px; }
+#board td { padding: 4px 6px; border-top: 1px solid var(--line); font-family: var(--f-mono); }
+#board td:nth-child(2) { font-family: var(--f-body); }
+#board tr.me td { background: rgba(217,178,92,.12); }
+#board tr.dead td { opacity: .5; }
+#board .tb { color: var(--blu); } #board .to { color: var(--opf); }
+#board .bot { font: 600 10px var(--f-big); letter-spacing: .1em; color: var(--dim); border: 1px solid var(--line); padding: 0 4px; margin-left: 6px; }
+#end { position: fixed; z-index: 28; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.6); }
+#end .panel { width: min(700px, 94vw); padding: 24px 30px; text-align: center; }
+#end .res { font: 800 54px var(--f-big); letter-spacing: .06em; }
+#end .earn { font: 600 20px var(--f-mono); color: var(--acc); margin: 10px 0; }
+#pause { position: fixed; z-index: 36; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); }
+#pause .panel { padding: 24px 30px; width: 340px; display: flex; flex-direction: column; gap: 6px; }
+#pause .code { font: 500 14px var(--f-mono); color: var(--dim); margin-bottom: 8px; }
+#toast { position: fixed; z-index: 70; left: 50%; bottom: 30px; transform: translateX(-50%); padding: 10px 18px; font-size: 14px; }
+#warn { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; background: #050505; }
+#warn .panel { width: min(560px, 92vw); padding: 28px 32px; line-height: 1.55; font-size: 15px; }
+@media (max-width: 760px) { #title { grid-template-columns: 1fr; } .side { display: none; } .logo { font-size: 58px; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bloodV"></div>
+<div id="flashW"></div>
+<div id="scope" hidden><canvas id="scopeRet" width="512" height="512"></canvas><div class="ring"></div></div>
+
+<!-- content warning -->
+<div id="warn">
+  <div class="panel">
+    <h2>Content warning</h2>
+    <p>COLD BORE is a realistic military shooter. It shows <b>graphic violence and blood</b>: wounds where rounds hit, blood on walls and floors, and at the higher settings heads and limbs destroyed by heavy rounds and explosives.</p>
+    <p class="muted">You can turn the gore down or off at any time in Settings (Gore: 0 is no blood at all).</p>
+    <div class="row"><button class="primary" id="warnOk">I understand</button><button id="warnLow">Start with gore off</button></div>
+  </div>
+</div>
+
+<!-- title -->
+<div id="title" class="screen" hidden>
+  <div class="left">
+    <h1 class="logo">COLD<span>BORE</span></h1>
+    <p class="tag">Real guns at their real prices. Earn them with kills. Every round lands where you put it.</p>
+    <button class="big" id="bQuick">Quick Play</button>
+    <button class="big" id="bBrowse">Server Browser</button>
+    <button class="big" id="bHost">Host a Match</button>
+    <button class="big" id="bJoin">Join with Code</button>
+    <button class="big" id="bOffline">Offline vs Bots</button>
+    <button class="big" id="bArmory">Armory</button>
+    <button class="big" id="bSettings">Settings</button>
+    <div class="who"><span>Callsign</span><input id="nameIn" maxlength="16" spellcheck="false"></div>
+    <div id="bankLine"></div>
+  </div>
+  <div class="side">
+    <div id="statLine" class="muted mono"></div>
+    <div class="small"><button id="bStats">Career</button><button id="syncBtn">Sync</button><button id="pcDownload">Download for PC</button><button id="installApp" style="display:none">Install app</button></div>
+  </div>
+</div>
+
+<!-- host -->
+<div id="hostD" class="dialog" hidden><div class="panel">
+  <button class="close" data-close>✕</button>
+  <h2>Host a match</h2>
+  <div class="grid2">
+    <label>Mode</label><select id="hMode"></select>
+    <label>Map</label><select id="hMap"></select>
+    <label>Fill with bots to</label><div class="row" style="margin:0"><input type="range" id="hBots" min="0" max="12" value="10"><span id="hBotsV" class="mono"></span></div>
+    <label>Bot skill</label><select id="hDiff"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
+    <label>Public</label><label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="hPublic" checked> List it in the server browser and Quick Play</label>
+    <label>Friendly fire</label><label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="hFF"> Teammates can be shot</label>
+  </div>
+  <p class="note" id="hDesc"></p>
+  <div class="err" id="hErr"></div>
+  <div class="row"><button class="primary" id="hGo">Start match</button></div>
+</div></div>
+
+<!-- join -->
+<div id="joinD" class="dialog" hidden><div class="panel" style="width:min(420px,94vw)">
+  <button class="close" data-close>✕</button>
+  <h2>Join with code</h2>
+  <div class="row"><input id="jCode" maxlength="4" placeholder="ABCD" style="text-transform:uppercase;font:600 26px var(--f-mono);width:130px;letter-spacing:.2em"><button class="primary" id="jGo">Join</button></div>
+  <div class="err" id="jErr"></div>
+</div></div>
+
+<!-- browser -->
+<div id="browseD" class="dialog" hidden><div class="panel">
+  <button class="close" data-close>✕</button>
+  <h2>Server browser</h2>
+  <div class="row"><span class="muted" id="brStatus"></span></div>
+  <div class="list" id="brList"></div>
+  <div class="row"><button id="brQuick" class="primary">Quick Play</button><button id="brHost">Host instead</button></div>
+</div></div>
+
+<!-- armory (cosmetics from the bank) -->
+<div id="armD" class="dialog" hidden><div class="panel" style="width:min(980px,96vw)">
+  <button class="close" data-close>✕</button>
+  <h2>Armory <span class="mono" style="color:var(--acc);font-size:22px;margin-left:12px" id="armBank"></span></h2>
+  <p class="note">Your bank is every dollar you have earned in matches. Guns are bought in each match with that match's money; the bank buys what you keep: uniforms, and Cerakote finishes for each gun.</p>
+  <div class="tabs" id="armTabs"></div>
+  <div class="items" id="armItems"></div>
+</div></div>
+
+<!-- settings -->
+<div id="setD" class="dialog" hidden><div class="panel">
+  <button class="close" data-close>✕</button>
+  <h2>Settings</h2>
+  <div class="grid2">
+    <label>Mouse sensitivity</label><div class="row" style="margin:0"><input type="range" id="sSens" min="0.1" max="3" step="0.05"><span class="mono" id="sSensV"></span></div>
+    <label>Aiming sensitivity</label><div class="row" style="margin:0"><input type="range" id="sAds" min="0.2" max="1.5" step="0.05"><span class="mono" id="sAdsV"></span></div>
+    <label>Field of view</label><div class="row" style="margin:0"><input type="range" id="sFov" min="70" max="110" step="1"><span class="mono" id="sFovV"></span></div>
+    <label>Volume</label><div class="row" style="margin:0"><input type="range" id="sVol" min="0" max="1" step="0.05"><span class="mono" id="sVolV"></span></div>
+    <label>Gore</label><div class="row" style="margin:0"><input type="range" id="sGore" min="0" max="100" step="5"><span class="mono" id="sGoreV"></span></div>
+    <label>Graphics</label><select id="sQual"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+    <label>Aim</label><select id="sAdsT"><option value="hold">Hold right mouse</option><option value="toggle">Toggle</option></select>
+    <label>Crosshair</label><select id="sCross"><option value="0">Off (realistic)</option><option value="1">Small dot</option></select>
+    <label>Hit markers</label><select id="sHitm"><option value="1">On</option><option value="0">Off</option></select>
+    <label>Invert look</label><select id="sInv"><option value="0">Off</option><option value="1">On</option></select>
+    <label>Controllers</label><select id="sPads"><option value="1">On</option><option value="0">Off</option></select>
+  </div>
+  <h3>Controls</h3>
+  <div class="note" style="line-height:1.8">
+    <span class="k">WASD</span>move <span class="k">Shift</span>sprint / hold breath when scoped <span class="k">C</span>crouch <span class="k">Z</span>prone <span class="k">Space</span>jump <span class="k">Q</span><span class="k">E</span>lean
+    <span class="k">Mouse 1</span>fire <span class="k">Mouse 2</span>aim <span class="k">R</span>reload <span class="k">V</span>fire mode <span class="k">1</span><span class="k">2</span><span class="k">3</span>primary / sidearm / melee <span class="k">F</span>quick melee
+    <span class="k">G</span>frag (hold to cook) <span class="k">4</span>flashbang <span class="k">5</span>smoke <span class="k">H</span>first aid <span class="k">T</span>weapon light <span class="k">X</span>pick up <span class="k">B</span>buy <span class="k">Tab</span>scores <span class="k">Esc</span>menu
+  </div>
+  <div class="note" style="line-height:1.8;margin-top:6px">Controller (Xbox, PlayStation, Steam Deck / Steam Controller): sticks move and look, <b>LT</b> aim, <b>RT</b> fire, <b>A</b> jump, <b>B</b> crouch (hold for prone), <b>X</b> reload / pick up, <b>Y</b> switch, <b>LB</b> throw, <b>RB</b> first aid, <b>L3</b> sprint, <b>R3</b> melee, D-pad up throwable, left fire mode, right light, down buy, <b>View</b> scores.</div>
+</div></div>
+
+<!-- career -->
+<div id="statsD" class="dialog" hidden><div class="panel" style="width:min(520px,94vw)">
+  <button class="close" data-close>✕</button>
+  <h2>Career</h2>
+  <div class="grid2" id="statsG"></div>
+</div></div>
+
+<!-- buy menu -->
+<div id="buy" class="panel" hidden>
+  <div class="head"><h2 style="margin:0">Buy <span class="note" id="buyWhere"></span></h2><div class="money" id="buyMoney"></div></div>
+  <p class="note" style="margin:2px 0 10px">Approximate US retail prices. What you buy is yours for this match (guns and attachments); armour, grenades and first aid are used up. Suppressor prices include the $200 tax stamp.</p>
+  <div class="tabs" id="buyTabs"></div>
+  <div class="scroll"><div class="items" id="buyItems"></div></div>
+  <div class="kit" id="buyKit"></div>
+  <div class="row" style="justify-content:flex-end;margin-bottom:0"><span class="note" style="margin-right:auto"><span class="k">B</span> or <span class="k">Esc</span> to close</span><button id="buyClose">Close</button></div>
+</div>
+
+<!-- in game -->
+<div id="hud" hidden>
+  <div id="compass"><div class="strip" id="compStrip"></div></div>
+  <div id="score"></div>
+  <div id="feed"></div>
+  <div id="cash"></div><div id="cashFx"></div>
+  <div id="cross" hidden><i class="d"></i></div>
+  <div id="hitm"><i></i><i></i><i></i><i></i></div>
+  <div id="dmgDir"></div>
+  <div id="prompt" hidden></div>
+  <div id="msg"></div>
+  <div id="bodyH">
+    <svg viewBox="0 0 62 124">
+      <circle class="p" id="bpHead" cx="31" cy="11" r="9"/>
+      <rect class="p" id="bpChest" x="19" y="23" width="24" height="25" rx="3"/>
+      <rect class="p" id="bpBelly" x="20" y="49" width="22" height="16" rx="3"/>
+      <rect class="p" id="bpArmL" x="6" y="24" width="11" height="40" rx="5"/>
+      <rect class="p" id="bpArmR" x="45" y="24" width="11" height="40" rx="5"/>
+      <rect class="p" id="bpLegL" x="19" y="66" width="11" height="56" rx="5"/>
+      <rect class="p" id="bpLegR" x="32" y="66" width="11" height="56" rx="5"/>
+    </svg>
+    <div class="txt"><b id="hpN">100</b><br><span id="armTxt"></span><br><span id="bleedTxt" class="bleed" hidden>BLEEDING</span></div>
+  </div>
+  <div id="ammo"><div><span class="n" id="amN">30</span> <span class="r" id="amR">/ 90</span></div><div class="g"><span id="amG"></span><span class="m" id="amM"></span></div><div id="utilH"></div></div>
+</div>
+<div id="death" class="panel" hidden>
+  <div class="by" id="dBy"></div>
+  <div class="how" id="dHow"></div>
+  <div class="row"><button id="dBuy">Buy (B)</button><button class="primary" id="dDeploy">Deploy (Space)</button></div>
+</div>
+<div id="board" class="panel" hidden></div>
+<div id="end" hidden><div class="panel"><div class="res" id="eRes"></div><div class="muted" id="eSub"></div><div class="earn" id="eEarn"></div><div id="eTable"></div><div class="muted" id="eNext" style="margin-top:12px"></div><div class="row" style="justify-content:center"><button id="eLeave">Leave match</button></div></div></div>
+<div id="pause" hidden><div class="panel">
+  <h2 style="margin-bottom:4px">Paused</h2>
+  <div class="code" id="pCode"></div>
+  <button class="big" id="pResume">Resume</button>
+  <button class="big" id="pBuy">Buy</button>
+  <button class="big" id="pSettings">Settings</button>
+  <button class="big" id="pInvite">Copy invite link</button>
+  <button class="big" id="pLeave">Leave match</button>
+</div></div>
+<div id="status" class="panel" hidden></div>
+<div id="toast" class="panel" hidden></div>
+
+<script src="sync.js"></script>
+<script src="install.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

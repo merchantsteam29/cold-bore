@@ -1,0 +1,19 @@
+{
+  "name": "COLD BORE",
+  "short_name": "Cold Bore",
+  "description": "A realistic online multiplayer FPS. Real guns at their real prices, earned from kills.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#0c0d0c",
+  "theme_color": "#0c0d0c",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

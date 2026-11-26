@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0f100f"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#d9b25c" stroke-width="14"/>
+  <circle cx="256" cy="256" r="96" fill="none" stroke="#d9b25c" stroke-width="5" opacity=".55"/>
+  <rect x="249" y="70" width="14" height="120" fill="#e6e5df"/>
+  <rect x="249" y="322" width="14" height="120" fill="#e6e5df"/>
+  <rect x="70" y="249" width="120" height="14" fill="#e6e5df"/>
+  <rect x="322" y="249" width="120" height="14" fill="#e6e5df"/>
+  <circle cx="256" cy="256" r="10" fill="#d8382c"/>
+  <text x="256" y="478" text-anchor="middle" font-family="Arial Narrow, Arial, sans-serif" font-weight="800" font-size="54" letter-spacing="6" fill="#e6e5df">COLD BORE</text>
+</svg>
