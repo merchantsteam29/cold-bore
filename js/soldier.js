@@ -41,6 +41,7 @@ const SEGS = [
 const v3 = () => new THREE.Vector3();
 const _a = v3(), _b = v3(), _c = v3(), _d = v3(), _e = v3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
+const SKIN_CACHE = new Map(); // kit -> { names, parts: [[geometry, material]] }
 const STEP = 1 / 120; // the ragdoll's verlet step: velocities are stored as movement per step
 
 function lam(c, extra = {}) { return new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, ...extra }); }
@@ -73,6 +74,10 @@ export class Soldier {
   }
 
   build() {
+    // a soldier with the same kit as one built before shares its body geometry (only the skeleton is new)
+    const key = [this.o.uniform, this.o.armor, this.o.helmet, this.o.team].join('|'), hit = SKIN_CACHE.get(key);
+    if (hit) { for (const n of hit.names) this.seg(n); this.bindSkin(hit.parts); return; }
+    this.skinKey = key;
     const U = UNIFORM[this.o.uniform] || UNIFORM.multicam, C = TX.camo(U);
     const uni = sm('uni' + this.o.uniform, () => new THREE.MeshStandardMaterial({ map: C.map, normalMap: C.normalMap, roughness: 0.92 }));
     const gear = sm('gear', () => { const t = TX.cordura(0x6e624a); return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, roughness: 0.95 }); });
@@ -178,12 +183,18 @@ export class Soldier {
     });
     for (const o of drop) o.removeFromParent();
     for (const grp of segs) for (const c of [...grp.children]) if (!c.isMesh && !c.children.length) c.removeFromParent();
+    const parts = []; for (const [m, list] of by) { parts.push([mergeGeometries(list), m]); for (const g of list) g.dispose(); }
+    SKIN_CACHE.set(this.skinKey, { names: Object.keys(this.segMesh), parts });
+    this.bindSkin(parts);
+  }
+  bindSkin(parts) {
+    const segs = Object.values(this.segMesh);
     const skeleton = new THREE.Skeleton(segs, segs.map(() => new THREE.Matrix4()));
     this.skinned = [];
-    for (const [m, list] of by) {
-      const mesh = new THREE.SkinnedMesh(mergeGeometries(list), m);
+    for (const [geo, m] of parts) {
+      const mesh = new THREE.SkinnedMesh(geo, m);
       mesh.bind(skeleton, new THREE.Matrix4()); mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true;
-      this.root.add(mesh); this.skinned.push(mesh); for (const g of list) g.dispose();
+      this.root.add(mesh); this.skinned.push(mesh);
     }
   }
   // hides a segment (a destroyed head): its bone shrinks to nothing
@@ -448,7 +459,7 @@ export class Soldier {
   joint(n) { return this.jp[I[n]]; }
   dispose() {
     this.group.removeFromParent();
-    for (const m of this.skinned || []) { m.geometry.dispose(); m.skeleton?.dispose?.(); }
+    for (const m of this.skinned || []) m.skeleton?.dispose?.(); // the geometry is shared (SKIN_CACHE)
     for (const s of this.props || []) s.o.removeFromParent();
     this.group.traverse((o) => { if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); } });
   }

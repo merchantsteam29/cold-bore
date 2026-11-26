@@ -1,0 +1,21 @@
+import { open, sleep } from './harness.mjs';
+import { spawn } from 'child_process';
+import path from 'path'; import { fileURLToPath } from 'url';
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const port = 8700 + Math.floor(Math.random() * 200);
+const srv = spawn(process.execPath, ['serve.js'], { cwd: root, env: { ...process.env, PORT: port }, stdio: 'ignore' });
+process.env.SH_URL = `http://localhost:${port}/`;
+await sleep(600);
+const { ev, done } = await open(import.meta.url);
+await sleep(6000);
+await ev(`document.getElementById('warnOk').click(); __s.hostMatch(__s.newMatchCfg({ mode: 'tdm', map: 'hadra', bots: 6, pub: false }), true)`); await sleep(2500);
+console.log(await ev(`
+  const W = await import('./js/world.js'), S = await import('./js/soldier.js'), Gn = await import('./js/guns.js');
+  const time = (f, n) => { const a = performance.now(); for (let i = 0; i < n; i++) f(i); return ((performance.now() - a) / n).toFixed(2); };
+  const w = __s.G.W, V = __s.camera.position.constructor;
+  const path = time((i) => W.findPath(w, new V(-50 + i, 0, -55), new V(50 - i, 0, 55)), 20);
+  const soldier = time(() => { const s = new S.Soldier({ uniform: 'multicam', armor: 'iii', helmet: 'fast', team: 0 }); s.dispose(); }, 20);
+  const gun = time(() => Gn.makeGun('hk416', { att: ['optic_holo', 'grip_vert'] }), 20);
+  const ray = time((i) => W.raycast(w, new V(-50, 1.5, -50 + i), new V(1, 0, 0.5).normalize(), 200), 200);
+  return JSON.stringify({ findPathMs: path, newSoldierMs: soldier, makeGunMs: gun, raycastMs: ray });`));
+srv.kill(); await done();

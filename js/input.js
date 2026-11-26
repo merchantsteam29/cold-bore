@@ -137,10 +137,14 @@ export class Input {
     // touch: the on-screen controls act as a pad
     if (this.touchMode) {
       const T = this.touch, s = T.stick, held = T.held, hit = T.hit;
-      this.pad = { mx: s ? s.x : 0, mz: s ? -s.y : 0, lx: 0, ly: 0, fire: !!held.fire, fireHit: !!hit.fire, aim: !!T.aimOn, reload: !!hit.reload, swap: !!hit.swap, knife: !!hit.knife,
-        use: !!hit.use, jump: !!hit.jump, light: !!hit.light, heal: !!hit.heal, map: !!hit.map, pause: !!hit.pause, run: !!held.run, prev: false, next: false,
-        up: false, downB: false, a: false, b: false, touch: true, useHeld: !!held.use };
+      // the on-screen buttons, read as a controller (COLD BORE's layout): sprint and aim are toggles
       if (hit.aim) T.aimOn = !T.aimOn;
+      if (hit.run) T.runOn = !T.runOn;
+      if (!s || -s.y < 0.4) T.runOn = false; // letting go of the stick (or not pushing forward) stops the sprint
+      this.pad = { mx: s ? s.x : 0, mz: s ? -s.y : 0, lx: 0, ly: 0, fire: !!held.fire, fireHit: !!hit.fire, aim: !!T.aimOn, run: !!T.runOn,
+        x: !!hit.reload, b: !!hit.crouch, bHeld: !!held.crouch, jump: !!hit.jump, a: false, y: !!hit.swap, r3: !!hit.knife, rb: !!hit.heal,
+        lb: !!hit.nade, lbHeld: !!held.nade, up: !!hit.nadeSel, xHeld: !!held.take, downB: !!hit.buy, viewHit: !!hit.score, view: !!held.score,
+        pause: !!hit.pause, prev: !!hit.mode, next: !!hit.light, touch: true };
       T.hit = {};
     }
   }

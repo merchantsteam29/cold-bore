@@ -40,7 +40,13 @@ function persist() { store(PKEY, prog); store(SKEY, set); try { window.GameSync?
 
 // ================= RENDERER =================
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+// phones and tablets start on Low; everything else on Medium (the settings can raise it)
+const PHONE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900;
+if (!localStorage.getItem(SKEY)) set.quality = PHONE ? 'low' : 'medium';
+// multisampling costs a lot on weak GPUs: only on High / Ultra (changing it needs a reload)
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: set.quality === 'high' || set.quality === 'ultra', powerPreference: 'high-performance' });
+// checking every shader's compile log stalls the GPU; only the tests want it
+renderer.debug.checkShaderErrors = TEST;
 renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.autoClear = false;
 let basePR = 1;
@@ -53,21 +59,29 @@ camera.rotation.order = 'YXZ'; scene.add(camera);
 const hemi = new THREE.HemisphereLight(0xbcd3ea, 0x8a7458, 1.1); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0d8, 3); sun.castShadow = true; scene.add(sun); scene.add(sun.target);
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
-const sc = sun.shadow.camera; sc.left = -78; sc.right = 78; sc.top = 78; sc.bottom = -78; sc.near = 1; sc.far = 420;
+// shadows only around you (the area follows the camera): sharper, and far less to draw into the shadow map
+const sc = sun.shadow.camera; sc.left = -55; sc.right = 55; sc.top = 55; sc.bottom = -55; sc.near = 1; sc.far = 400;
+sun.shadow.autoUpdate = false;
 const wlight = new THREE.SpotLight(0xfff4e0, 0, 45, 0.38, 0.45, 1.5); camera.add(wlight); camera.add(wlight.target); wlight.target.position.set(0, 0, -5); wlight.position.set(0.15, -0.1, 0);
 const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2010, toneMapped: false })); laserDot.visible = false; scene.add(laserDot);
 const VM = createViewmodel(innerWidth / innerHeight);
 const pfx = createPost(renderer, scene, camera, VM.scene, VM.cam);
+let shadowEvery = 1, shadowN = 0;
 function applyQuality() {
   const q = set.quality;
   basePR = q === 'low' ? Math.min(1, devicePixelRatio) * 0.75 : q === 'medium' ? Math.min(1, devicePixelRatio) : q === 'high' ? Math.min(1.5, devicePixelRatio) : Math.min(2, devicePixelRatio);
   renderer.setPixelRatio(basePR); gov.reset();
   pfx.setQuality(q);
-  const sz = q === 'low' ? 1024 : q === 'medium' ? 2048 : 4096;
+  const sz = q === 'medium' ? 1024 : q === 'high' ? 2048 : 4096;
   sun.shadow.radius = q === 'ultra' ? 3 : 1.5;
   if (sun.shadow.mapSize.x !== sz) { sun.shadow.mapSize.set(sz, sz); sun.shadow.map?.dispose(); sun.shadow.map = null; }
-  renderer.shadowMap.enabled = q !== 'low' || true;
-  TX.setAniso(q === 'high' ? 8 : 4);
+  // Low: no shadows at all (the sky light still shades everything). Materials recompile when this changes.
+  const sh = q !== 'low';
+  if (renderer.shadowMap.enabled !== sh) { renderer.shadowMap.enabled = sh; scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; }); }
+  shadowEvery = q === 'medium' ? 2 : 1;
+  // how far you can see (the haze hides the cut)
+  camera.far = q === 'low' ? 450 : q === 'medium' ? 800 : 1600; camera.updateProjectionMatrix(); pfx.setFar(camera.far);
+  TX.setAniso(q === 'low' ? 2 : q === 'high' || q === 'ultra' ? 8 : 4);
 }
 function resize() { renderer.setSize(innerWidth, innerHeight, false); pfx.resize(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); VM.cam.aspect = camera.aspect; VM.cam.updateProjectionMatrix(); }
 addEventListener('resize', resize);
@@ -75,6 +89,10 @@ if (TEST) set.quality = 'low'; // automated tests run in software-rendered Chrom
 applyQuality(); resize();
 
 const input = new Input(canvas);
+// phones: on-screen controls (left half: a stick wherever your thumb lands; right half: drag to look)
+input.bindTouch($('touch'));
+addEventListener('touchstart', () => { if (!input.touchMode) input.setMode('touch'); }, { passive: true });
+if (PHONE) input.setMode('touch');
 input.pads = set.pads === '1';
 const gore = createGore(scene, (x, z, y) => G.W ? groundAt(G.W, x, z, y) : 0);
 gore.level = set.gore / 100;
@@ -128,6 +146,8 @@ function poseEnt(e, dt) {
   e.body.pose({ pos: e.pos, yaw: e.yaw, pitch: e.pitch, stance: e.stance, lean: e.lean, speed: e.speed, phase: e.phase, vel: e.vel, hold: holdOf(e), ads: e.ads, sprint: e.sprint,
     reload: isMine(e) ? (w && w.reloadT >= 0 ? w.reloadT / w.reloadDur : 0) : e.rl || 0, kick: e.kick || 0, swing: isMine(e) ? (w && w.swingT >= 0 ? w.swingT : 0) : e.sw || 0, throwT: isMine(e) ? Math.max(0, w?.throwT || 0) : 0 });
   e.kick = (e.kick || 0) * Math.exp(-dt * 14);
+  const near = e.pos.distanceToSquared(camera.position) < 1600;
+  if (e.body.shadowNear !== near) { e.body.shadowNear = near; for (const m of e.body.skinned || []) m.castShadow = near; if (e.body.gun) e.body.gun.traverse((o) => { if (o.isMesh) o.castShadow = near; }); }
   // footsteps you can hear (others only, and only close)
   if (e !== G.me && e.speed > 0.5 && e.stance < 2) {
     const s = Math.floor(e.phase / Math.PI);
@@ -166,6 +186,33 @@ function buildMatch(cfg) {
   G.scores = [0, 0]; G.timeLeft = MODES[cfg.mode].time; G.ended = false;
   AU.ambience(cfg.map);
   $('flagsH')?.remove();
+  warmShaders();
+}
+// Every kind of thing that can appear mid-fight (soldiers, ragdoll wounds, gibs, debris, fireballs, flashes, tracers,
+// grenades, dropped guns, the first-person gun) is compiled now, while the match loads, instead of stuttering the
+// first time it shows up.
+function warmShaders() {
+  const tmp = new THREE.Group(); scene.add(tmp);
+  const s = new Soldier({ uniform: 'multicam', armor: 'iii', helmet: 'fast', team: 0 }); s.setGun('m4', ['optic_holo', 'las_light']); tmp.add(s.group);
+  s.pose({ pos: V(0, -50, 0), yaw: 0, pitch: 0, stance: 0, lean: 0, speed: 0, phase: 0, hold: 'gun' });
+  s.wound(s.center.clone(), V(0, 0, 1), 'chest'); s.setTag('x', '#fff');
+  tmp.add(makeGrenade('frag'), makeGrenade('smoke'), makeGun('glock17'), makeGun('r870'));
+  gore.gib(V(0, -50, 0), V(0, 1, 0), 3); gore.splat(V(0, -50, 0), 0.3); gore.pool(V(0, -50, 0)); gore.spray(V(0, -50, 0), V(0, 1, 0), 3);
+  fx.chunk(V(0, -50, 0), V(0, 1, 0), 3); fx.smoke(V(0, -60, 0), 0.1);
+  // everything visible and un-culled for this one frame, so every shader is actually used once
+  const hidden = [], culled = []; scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; } });
+  try {
+    renderer.compile(scene, camera); renderer.compile(VM.scene, VM.cam);
+    // and draw it once, small and off-screen, so the driver finishes every shader now (not on first sight mid-fight)
+    // (on the real screen: a render target would use different shader variants; the deploy screen covers it)
+    renderer.clear(); renderer.render(scene, camera); renderer.clearDepth(); renderer.render(VM.scene, VM.cam);
+    if (pfx.composer) pfx.render(true, { hurt: 0, suppress: 0, flash: 0 }, 0);
+  } catch { /* fine */ }
+  for (const o of hidden) o.visible = false;
+  for (const o of culled) o.frustumCulled = true;
+  s.dispose(); tmp.removeFromParent(); gore.clear(); fx.clear();
+  // the first-person guns and arms
+  VM.setGun('hk416', ['optic_holo', 'grip_vert']); try { renderer.compile(VM.scene, VM.cam); } catch { /* fine */ } VM.setEmpty();
 }
 function clearMatch(full = true) {
   for (const e of G.ents.values()) e.body?.dispose();
@@ -228,7 +275,13 @@ function myState() {
   const e = G.me, w = e.ws;
   return { t: 's', p: [+e.pos.x.toFixed(2), +e.pos.y.toFixed(2), +e.pos.z.toFixed(2)], y: +e.yaw.toFixed(3), x: +e.pitch.toFixed(3), st: e.stance, l: +e.lean.toFixed(2), sp: +e.speed.toFixed(1), fl: (e.ads ? 1 : 0) | (e.sprint ? 2 : 0), g: e.gk, r: w && w.reloadT >= 0 ? +(w.reloadT / w.reloadDur).toFixed(2) : 0, w: w && w.swingT >= 0 ? +w.swingT.toFixed(2) : 0 };
 }
+// tests: the slowest time each kind of event took (window.__spikes)
+const SPK = TEST ? (window.__spikes = {}) : null;
+const spk = (k, t0) => { if (SPK) { const d = performance.now() - t0; if (d > (SPK[k] || 0)) SPK[k] = +d.toFixed(1); } };
 function handle(m, from) {
+  const t0 = SPK ? performance.now() : 0; handle0(m, from); spk('msg:' + m.t, t0);
+}
+function handle0(m, from) {
   const e = m.i ? G.ents.get(m.i) : null;
   switch (m.t) {
     case 'init': onInit(m); break;
@@ -472,6 +525,7 @@ function onSpawn(e, m) {
 function deploy() {
   const me = G.me; if (!me || me.alive || G.state !== 'play' || now() - me.deadT < 4.5) return;
   showDeath(false); $('buy').hidden = true;
+  if (input.touchMode && !document.fullscreenElement) { document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {}); }
   spawnEnt(me);
   VM.setUniform(me.uni);
   input.lock();
@@ -757,6 +811,7 @@ function updateMe(dt) {
   const gs = w?.stats || {};
   // ---- look ----
   const zoom = VM.info?.zoom && VM.ads > 0.9 ? VM.info.zoom : 1;
+  input.touchSens = set.sens;
   const sens = 0.0022 * set.sens * (me.ads ? set.ads / Math.max(1, zoom * 0.75) : 1) * (input.padMode ? 1.4 : 1);
   if (!ui) { me.yaw -= input.dx * sens; me.pitch -= input.dy * sens * (set.inv === '1' ? -1 : 1); }
   // recoil goes in over a few frames, part of it comes back
@@ -765,6 +820,21 @@ function updateMe(dt) {
   P.recov += dp * 0.5; P.recovY += dyw * 0.3;
   if (P.recoilP < 0.0005) { const back = P.recov * Math.min(1, dt * 5); me.pitch -= back; P.recov -= back; const by = P.recovY * Math.min(1, dt * 5); me.yaw -= by; P.recovY -= by; }
   me.pitch = clamp(me.pitch, -1.45, 1.45);
+  // aim assist (touch only): a gentle pull towards an enemy close to the crosshair, stronger when aiming
+  if (pad?.touch && !ui) {
+    const f = V(0, 0, -1).applyQuaternion(camera.quaternion), cam = camera.position;
+    let best = null, bestA = me.ads ? 0.07 : 0.11;
+    for (const o of G.ents.values()) {
+      if (!o.alive || !o.body || !enemies(me, o)) continue;
+      const to = o.body.center.clone().sub(cam), d = to.length(); if (d > 120) continue;
+      const ang = f.angleTo(to); if (ang < bestA && clearLine(G.W, cam, o.body.center)) { bestA = ang; best = to; }
+    }
+    if (best) {
+      const k = Math.min(1, dt * (me.ads ? 5 : 2.5) * (input.touch.look ? 1 : 0.6));
+      let dy = Math.atan2(-best.x, -best.z) - me.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+      me.yaw += dy * k; me.pitch += (Math.atan2(best.y, Math.hypot(best.x, best.z)) - me.pitch) * k;
+    }
+  }
   // ---- stance, lean ----
   const W = G.W;
   const want = (s) => { const nb = { ...me.pos }; void nb; return s >= me.stance || fits(W, me.pos, 0.28, HEIGHT[s]); };
@@ -972,9 +1042,13 @@ const botG = {
   lastShotNear(e) { const t = now(); let best = null, bd = 1e9; for (const s of G.shots) { if (t - s.t > 1.5 || s.by === e.id) continue; const sh = G.ents.get(s.by); if (sh && !enemies(e, sh)) continue; const d = s.p.distanceTo(e.pos); if (d < (s.sup ? 22 : 70) && d < bd) { bd = d; best = s.p; } } return best; },
   heal(e) { WP.startHeal(e); },
   equip(e, slot) { return WP.equip(e, slot); },
+  paths: 1, takePath() { if (botG.paths <= 0) return false; botG.paths--; return true; },
   reload(e) { WP.reload(e, hooks); },
+  spk(k, t0) { spk(k, t0); },
   fire(e, yaw, pitch) {
-    if (!WP.canFire(e)) return; const s = e.ws.stats; WP.fired(e);
+    if (!WP.canFire(e)) return; const tf = SPK ? performance.now() : 0; try { this.fire0(e, yaw, pitch); } finally { spk('botFire', tf); }
+  },
+  fire0(e, yaw, pitch) { const s = e.ws.stats; WP.fired(e);
     const eye = e.pos.clone().add(V(0, EYE[e.stance], 0));
     const base = V(0, 0, -1).applyEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
     const sp = (e.ads ? 0.0025 : s.hipSpread * 0.6) * (1 + e.speed / 4);
@@ -989,17 +1063,18 @@ const botG = {
   botGoal(e) { return botGoalFor(e, botG); },
 };
 function updateBots(dt) {
+  botG.paths = 1;
   for (const e of G.ents.values()) {
     if (!e.bot) continue;
     if (!e.brain) makeBrain(e, G.cfg.diff);
     if (!e.alive) {
       if (e.frozen) continue; // tests
-      if (now() - e.deadT > 5 && G.state === 'play') { botBuy(e, buy); e.brain.target = null; e.brain.goal = null; e.brain.path = null; spawnEnt(e); }
+      if (now() - e.deadT > 5 && G.state === 'play') { const tr = SPK ? performance.now() : 0; botBuy(e, buy); spk('botBuy', tr); e.brain.target = null; e.brain.goal = null; e.brain.path = null; spawnEnt(e); }
       continue;
     }
     if (e.frozen) { e.vel.set(0, 0, 0); WP.tick(e, dt, hooks); continue; } // tests
     if (e.brain.blind > 0) { e.brain.blind -= dt; e.brain.target = null; }
-    botThink(e, dt, botG);
+    const tb = SPK ? performance.now() : 0; botThink(e, dt, botG); spk('botThink', tb);
     WP.tick(e, dt, hooks);
     if (!WP.isBusy(e) && e.ws.stats && !e.ws.stats.melee && e.ammo[e.ws.id]?.mag === 0) { if (!WP.reload(e, hooks) && e.ws.slot === 'primary') WP.equip(e, 'sidearm'); }
     bleedTick(e, dt);
@@ -1125,10 +1200,13 @@ function updateHUD() {
     const partCol = (p) => { const d = me.partDmg[p] || 0; const k = clamp(d / 60, 0, 1); return `rgba(${230},${229 - k * 190},${223 - k * 200},${0.55 + k * 0.4})`; };
     for (const [id, p] of [['bpHead', 'head'], ['bpChest', 'chest'], ['bpBelly', 'belly'], ['bpArmL', 'armL'], ['bpArmR', 'armR'], ['bpLegL', 'legL'], ['bpLegR', 'legR']]) { const c = partCol(p); if (hudCache[id] !== c) { hudCache[id] = c; $(id).style.fill = c; } }
   }
-  $('cross').hidden = set.cross !== '1' || !me.alive || me.ads;
+  $('cross').hidden = (set.cross !== '1' && !input.touchMode) || !me.alive || me.ads;
+  const touchOn = input.touchMode && G.state === 'play' && me.alive && $('buy').hidden && $('pause').hidden && $('end').hidden;
+  if (hudCache.touchOn !== touchOn) { hudCache.touchOn = touchOn; $('touch').classList.toggle('on', touchOn); if (!touchOn) { input.touch.aimOn = false; input.touch.runOn = false; } }
+  if (touchOn) { $('tAim').classList.toggle('toggled', !!input.touch.aimOn); $('tRun').classList.toggle('toggled', !!input.touch.runOn); $('tTake').classList.toggle('show', !!P.prompt); }
   if (hudCache.alive !== me.alive) { hudCache.alive = me.alive; $('ammo').hidden = $('bodyH').hidden = !me.alive; }
   // prompt
-  const pr = me.alive && P.prompt ? `<kbd>${input.padMode ? input.label(2) : 'X'}</kbd>Take ${GUNS[P.prompt.gun].name}` : me.alive && canBuyNow() && now() - me.spawnT < 20 ? `<kbd>${input.padMode ? '▼' : 'B'}</kbd>Buy` : '';
+  const pr = me.alive && P.prompt ? `<kbd>${input.padMode ? input.label(2) : 'X'}</kbd>Take ${GUNS[P.prompt.gun].name}` : me.alive && canBuyNow() && now() - me.spawnT < 20 ? `<kbd>${input.touchMode ? 'BUY' : input.padMode ? '▼' : 'B'}</kbd>Buy` : '';
   if (hudCache.pr !== pr) { hudCache.pr = pr; $('prompt').innerHTML = pr; $('prompt').hidden = !pr; }
   // the edges go red as you lose blood
   const lowHp = me.alive ? clamp((60 - me.hp) / 60, 0, 1) : 0;
@@ -1266,7 +1344,7 @@ for (const [id, k] of Object.entries({ sSens: 'sens', sAds: 'ads', sFov: 'fov', 
   $(id).addEventListener('input', () => {
     const el = $(id); set[k] = el.type === 'range' ? +el.value : el.value;
     const v = $(id + 'V'); if (v) v.textContent = k === 'vol' ? Math.round(set[k] * 100) + '%' : set[k];
-    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') applyQuality(); if (k === 'pads') input.pads = set.pads === '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
+    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
     store(SKEY, set);
   });
 }
@@ -1430,6 +1508,8 @@ function drawScope(info) {
   g.drawImage(img, 0, 0, 512, 512);
 }
 function draw() {
+  // the shadow map is redrawn every frame on High / Ultra, every other frame on Medium
+  if (renderer.shadowMap.enabled && ++shadowN >= shadowEvery) { shadowN = 0; sun.shadow.needsUpdate = true; }
   const showVM = G.state !== 'menu' && !!G.me?.alive && VM.holder.visible;
   if (showVM) { VM.cam.fov = 58; VM.cam.updateProjectionMatrix(); }
   const lowHp = G.me?.alive ? clamp((60 - G.me.hp) / 60, 0, 1) : 0;
@@ -1469,6 +1549,13 @@ if (set.warned) { $('warn').hidden = true; }
 showTitle(); menuScene();
 requestAnimationFrame(frame);
 AU.setVolume(set.vol);
+// warm-up while the title screen sits there: every gun model and uniform texture is built now, not mid-fight
+(() => {
+  const jobs = [...Object.keys(UNIFORM).map((u) => () => TX.camo(UNIFORM[u])), ...Object.keys(GUNS).map((g) => () => makeGun(g)), ...['optic_holo', 'optic_dot', 'grip_vert'].map((a) => () => makeGun('m4', { att: [a] }))];
+  const idle = window.requestIdleCallback || ((f) => setTimeout(() => f({ timeRemaining: () => 8 }), 30));
+  const next = (d) => { while (jobs.length && d.timeRemaining() > 4) { try { jobs.shift()(); } catch { /* skip */ } } if (jobs.length) idle(next); };
+  idle(next);
+})();
 const joinParam = new URLSearchParams(location.search).get('join');
 if (joinParam && set.warned) setTimeout(() => joinMatch(cleanCode(joinParam)).catch((e) => toast(e.message)), 500);
 

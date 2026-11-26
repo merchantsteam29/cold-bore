@@ -17,6 +17,9 @@ matches (the host's browser is the server), the public MQTT relays for the match
 - **Gore**: wounds on the body, mist, spray, wall splatter, pools, and (above 50) heads destroyed by heavy rounds and
   (above 70) limbs taken off by explosives and .50 BMG. Slider in Settings; 0 turns all blood off.
 
+Phones: touch controls (left stick wherever your thumb lands, right side to look), aim assist, fullscreen landscape.
+Performance: guns are cached and cloned, soldiers share skinned geometry, shaders are compiled at match load (tools/shaderlog.mjs), Low has no shadows. tools/prof.mjs and tools/calls.mjs measure.
+
 Files: `js/data.js` (guns, prices), `js/world.js` (maps, collision, rays, bot nav), `js/combat.js` (ballistics,
 wounds), `js/weapons.js` (weapon state), `js/soldier.js` (bodies, ragdolls, hitboxes), `js/bots.js` (AI),
 `js/main.js` (everything else). Tests: `tools/*.mjs` drive headless Chrome (`node tools/smoke.mjs`).

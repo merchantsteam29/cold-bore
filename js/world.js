@@ -396,28 +396,37 @@ export function navNearest(W, x, z) {
 }
 // A* from world a to world b; returns a list of world points (simplified by line of sight) or null
 export function findPath(W, a, b, maxIter = 9000) {
-  const N = W.nav, [sx, sz] = navNearest(W, a.x, a.z), [gx, gz] = navNearest(W, b.x, b.z);
-  const key = (x, z) => z * N.nx + x, start = key(sx, sz), goal = key(gx, gz);
-  const g = new Map([[start, 0]]), came = new Map(), open = [[0, start]], closed = new Set();
-  const h = (k) => { const x = k % N.nx, z = (k / N.nx) | 0; const dx = Math.abs(x - gx), dz = Math.abs(z - gz); return Math.max(dx, dz) + 0.414 * Math.min(dx, dz); };
-  let it = 0;
-  while (open.length && it++ < maxIter) {
-    // pop the lowest f (binary heap)
-    const cur = heapPop(open)[1];
-    if (cur === goal) break;
-    if (closed.has(cur)) continue; closed.add(cur);
-    const cx = cur % N.nx, cz = (cur / N.nx) | 0;
+  const N = W.nav, [sx, sz] = navNearest(W, a.x, a.z), [gx, gz] = navNearest(W, b.x, b.z), nx = N.nx, n = nx * N.nz;
+  // typed arrays, allocated once per map; a search number marks which entries belong to this search
+  if (!N.g) { N.g = new Float32Array(n); N.came = new Int32Array(n); N.seen = new Uint32Array(n); N.shut = new Uint32Array(n); N.hk = new Float32Array(n * 8); N.hv = new Int32Array(n * 8); N.run = 0; }
+  const run = ++N.run, G = N.g, came = N.came, seen = N.seen, shut = N.shut, HK = N.hk, HV = N.hv, block = N.block;
+  const start = sz * nx + sx, goal = gz * nx + gx;
+  let hn = 0;
+  const push = (f, k) => { let i = hn++; HK[i] = f; HV[i] = k; while (i > 0) { const p = (i - 1) >> 1; if (HK[p] <= HK[i]) break; const tf = HK[p], tk = HV[p]; HK[p] = HK[i]; HV[p] = HV[i]; HK[i] = tf; HV[i] = tk; i = p; } };
+  const pop = () => { const top = HV[0]; hn--; if (hn > 0) { HK[0] = HK[hn]; HV[0] = HV[hn]; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < hn && HK[l] < HK[m]) m = l; if (r < hn && HK[r] < HK[m]) m = r; if (m === i) break; const tf = HK[m], tk = HV[m]; HK[m] = HK[i]; HV[m] = HV[i]; HK[i] = tf; HV[i] = tk; i = m; } } return top; };
+  const free = (x, z) => x >= 0 && z >= 0 && x < nx && z < N.nz && !block[z * nx + x];
+  G[start] = 0; seen[start] = run; came[start] = -1; push(0, start);
+  let it = 0, found = start === goal;
+  while (hn && it++ < maxIter && hn < HK.length - 8) {
+    const cur = pop();
+    if (cur === goal) { found = true; break; }
+    if (shut[cur] === run) continue; shut[cur] = run;
+    const cx = cur % nx, cz = (cur / nx) | 0, gc = G[cur];
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dz) continue;
-      const x = cx + dx, z = cz + dz; if (!navFree(W, x, z)) continue;
-      if (dx && dz && (!navFree(W, cx + dx, cz) || !navFree(W, cx, cz + dz))) continue;
-      const k = key(x, z), ng = g.get(cur) + (dx && dz ? 1.414 : 1);
-      if (ng < (g.get(k) ?? Infinity)) { g.set(k, ng); came.set(k, cur); heapPush(open, [ng + h(k), k]); }
+      const x = cx + dx, z = cz + dz; if (!free(x, z)) continue;
+      if (dx && dz && (!free(cx + dx, cz) || !free(cx, cz + dz))) continue;
+      const k = z * nx + x, ng = gc + (dx && dz ? 1.414 : 1);
+      if (seen[k] !== run || ng < G[k]) {
+        seen[k] = run; G[k] = ng; came[k] = cur;
+        const ddx = Math.abs(x - gx), ddz = Math.abs(z - gz);
+        push(ng + Math.max(ddx, ddz) + 0.414 * Math.min(ddx, ddz), k);
+      }
     }
   }
-  if (!came.has(goal) && start !== goal) return null;
-  const cellsPath = []; let k = goal; while (k !== undefined && k !== start) { cellsPath.push(k); k = came.get(k); } cellsPath.push(start); cellsPath.reverse();
-  const pts = cellsPath.map((k) => navPos(W, k % N.nx, (k / N.nx) | 0));
+  if (!found) return null;
+  const cellsPath = []; let k = goal; while (k !== start && k >= 0) { cellsPath.push(k); k = came[k]; } cellsPath.push(start); cellsPath.reverse();
+  const pts = cellsPath.map((c) => navPos(W, c % nx, (c / nx) | 0));
   // string-pulling: skip points that can be walked straight past
   const out = [pts[0]]; let i = 0;
   while (i < pts.length - 1) {
@@ -432,8 +441,6 @@ export function navLine(W, a, b) {
   for (let i = 1; i <= n; i++) { const t = i / n; const [cx, cz] = navCell(W, a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t); if (!navFree(W, cx, cz)) return false; }
   return true;
 }
-function heapPush(h, v) { h.push(v); let i = h.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (h[p][0] <= h[i][0]) break; [h[p], h[i]] = [h[i], h[p]]; i = p; } }
-function heapPop(h) { const top = h[0], last = h.pop(); if (h.length) { h[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < h.length && h[l][0] < h[m][0]) m = l; if (r < h.length && h[r][0] < h[m][0]) m = r; if (m === i) break; [h[m], h[i]] = [h[i], h[m]]; i = m; } } return top; }
 export function randomNavPoint(W, rnd = Math.random) {
   for (let i = 0; i < 200; i++) { const x = (rnd() * W.nav.nx) | 0, z = (rnd() * W.nav.nz) | 0; if (navFree(W, x, z)) return navPos(W, x, z); }
   return new THREE.Vector3();

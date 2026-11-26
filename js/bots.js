@@ -57,6 +57,7 @@ export function botThink(ent, dt, G) {
   const eye = _a.copy(ent.pos).add(_b.set(0, ent.stance === 2 ? 0.35 : ent.stance === 1 ? 1.05 : 1.62, 0)).clone();
   // ---- senses, a few times a second ----
   B.think -= dt;
+  const ts = performance.now();
   if (B.think <= 0) {
     B.think = 0.15 + Math.random() * 0.1;
     let best = null, bestD = 1e9;
@@ -83,6 +84,7 @@ export function botThink(ent, dt, G) {
     const heard = G.lastShotNear(ent);
     if (heard && !B.target) { B.alert = heard.clone(); B.alertT = 3; if (Math.random() < 0.4) { B.goal = heard.clone(); B.path = null; } }
   }
+  G.spk?.('senses', ts);
   B.alertT -= dt; B.hurtT = (B.hurtT || 0) - dt;
   // ---- health ----
   if (ent.bleed > 0.6 && !B.target && (ent.util.bandage || ent.util.cat || ent.util.ifak) && B.healT <= 0) { G.heal(ent); B.healT = 4; }
@@ -128,10 +130,13 @@ export function botThink(ent, dt, G) {
   }
   // ---- moving ----
   B.repath -= dt;
+  const tg = performance.now();
   if (!B.goal || B.repath <= 0 || (B.path && B.pi >= B.path.length)) {
     if (!B.goal || (B.path && B.pi >= B.path.length) || B.repath < -20) { B.goal = G.botGoal(ent); B.path = null; }
   }
-  if (!B.path && B.goal) { B.path = findPath(W, ent.pos, B.goal) || [B.goal.clone()]; B.pi = 1; B.repath = 6 + Math.random() * 4; }
+  // one path search per frame across all bots (the rest wait a frame), so they never stack up into a hitch
+  G.spk?.('botGoal', tg);
+  if (!B.path && B.goal && G.takePath()) { const tp = performance.now(); B.path = findPath(W, ent.pos, B.goal) || [B.goal.clone()]; G.spk?.('findPath', tp); B.pi = 1; B.repath = 6 + Math.random() * 4; }
   let mv = _b.set(0, 0, 0);
   if (wantMove && B.path && B.pi < B.path.length) {
     const wp = B.path[B.pi], to = _a.set(wp.x - ent.pos.x, 0, wp.z - ent.pos.z), d = to.length();

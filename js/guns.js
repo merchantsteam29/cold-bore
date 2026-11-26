@@ -30,8 +30,20 @@ function finishMat(fid, tint) {
   return mat('fin' + fid + ':' + col, () => new THREE.MeshStandardMaterial({ color: 0xffffff, map: f.pattern ? TX.finishTex(f) : TX.polymer(col === 0x1c1d1f ? 0x2a2b2d : col), roughness: 0.55, metalness: 0.3 }));
 }
 
-export function makeGun(id, { finish = 'black', att = [] } = {}) {
-  const G = GUNS[id]; if (!G) return makeGun('glock17');
+// Built once per configuration, then cloned (clones share geometry and materials, so a new gun in someone's
+// hands, or a dropped one, costs almost nothing).
+const gunCache = new Map();
+export function makeGun(id, opts = {}) {
+  const key = id + '|' + (opts.att || []).join(',') + '|' + (opts.finish || 'black');
+  let src = gunCache.get(key);
+  if (!src) { src = buildGun(id, opts); gunCache.set(key, src); }
+  const info = src.userData.info; src.userData = {};
+  const c = src.clone(true); src.userData = { info };
+  c.userData = { info: { ...info, mag: c.getObjectByName('mag') || null, pump: c.getObjectByName('pump') || null, reticle: c.getObjectByName('reticle') || null } };
+  return c;
+}
+function buildGun(id, { finish = 'black', att = [] } = {}) {
+  const G = GUNS[id]; if (!G) return buildGun('glock17');
   const root = new THREE.Group(); root.name = 'gun:' + id;
   const F = finishMat(finish, G.tint), S = steel(), K = black();
   const box = (w, h, d, x, y, z, m = F, rx = 0, parent = root) => { const o = new THREE.Mesh(rbox(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; parent.add(o); return o; };
@@ -40,7 +52,7 @@ export function makeGun(id, { finish = 'black', att = [] } = {}) {
   const atts = att.map((a) => ATTACH[a] ? a : null).filter(Boolean);
   const has = (slot) => atts.find((a) => ATTACH[a].slot === slot);
   const magAtt = has('mag');
-  const mag = (obj) => { info.mag = obj; info.magHome.copy(obj.position); return obj; };
+  const mag = (obj) => { obj.name = 'mag'; info.mag = obj; info.magHome.copy(obj.position); return obj; };
 
   switch (G.model) {
     case 'pistol': case 'deagle': {
@@ -164,7 +176,7 @@ export function makeGun(id, { finish = 'black', att = [] } = {}) {
       box(0.052, 0.07, 0.24, 0, 0.055, -0.03, ks ? S : K);
       cyl(0.012, 0.5, 0, 0.075, -0.4, S);                                                        // barrel
       if (!ks) cyl(0.012, 0.42, 0, 0.042, -0.36, S);                                             // magazine tube
-      const fore = box(0.05, 0.05, 0.2, 0, 0.045, -0.3, ks ? K : rubber()); info.pump = fore;
+      const fore = box(0.05, 0.05, 0.2, 0, 0.045, -0.3, ks ? K : rubber()); info.pump = fore; fore.name = 'pump';
       box(0.032, 0.1, 0.045, 0, -0.035, 0.05, K, -0.3); box(0.03, 0.012, 0.06, 0, -0.005, -0.03, K);
       box(0.045, 0.1, 0.27, 0, 0.045, 0.22, K); box(0.046, 0.11, 0.02, 0, 0.04, 0.35, rubber());
       if (ks) mag(box(0.032, 0.14 * (magAtt ? 1.3 : 1), 0.09, 0, -0.05, -0.09, K, 0.2));
@@ -239,7 +251,7 @@ export function makeGun(id, { finish = 'black', att = [] } = {}) {
     else { const L2 = opt === 'optic_sniper' ? 0.34 : 0.26, R2 = opt === 'optic_sniper' ? 0.028 : 0.02; cyl(0.016, L2, 0, 0.042, -0.04, K, 0.016, 16, g); cyl(R2, 0.07, 0, 0.042, -0.04 - L2 / 2 + 0.03, K, R2, 16, g); cyl(0.02, 0.06, 0, 0.042, -0.04 + L2 / 2 - 0.03, K, 0.02, 16, g); box(0.02, 0.02, 0.02, 0, 0.06, -0.04, K, 0, g); lensY = 0.042; len = L2; }
     // the lens with its reticle (only visible from behind, in first person)
     const ret = new THREE.Mesh(new THREE.CircleGeometry(lensR, 20), new THREE.MeshBasicMaterial({ map: TX.reticle(A.reticle), transparent: true, depthWrite: false, toneMapped: false }));
-    ret.position.set(0, lensY, lensZ + len / 2 - 0.005); g.add(ret); info.reticle = ret;
+    ret.position.set(0, lensY, lensZ + len / 2 - 0.005); g.add(ret); ret.name = 'reticle'; info.reticle = ret;
     info.sightY = r.y + lensY; info.sightZ = r.z + len / 2 + 0.05; info.zoom = A.zoom; info.optic = opt;
     info.scope = A.zoom >= 4;
   }
