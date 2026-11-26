@@ -19,7 +19,7 @@ const png = async (file, size, pad = 0, bleed = false) => {
   fs.writeFileSync(path.join(root, file), Buffer.from(r.result.data, 'base64'));
 };
 // cover: aiming down an EOTech across the market at two OPFOR soldiers by the stalls
-await ev(`document.getElementById('warnOk').click(); __s.set.quality = 'high'; __s.hostMatch(__s.newMatchCfg({ mode: 'tdm', map: 'hadra', bots: 6, pub: false }), true)`); await sleep(2500);
+await ev(`document.getElementById('warnOk').click(); const q = document.getElementById('sQual'); q.value = 'ultra'; q.dispatchEvent(new Event('input')); __s.hostMatch(__s.newMatchCfg({ mode: 'tdm', map: 'hadra', bots: 6, pub: false }), true)`); await sleep(2500);
 await ev(`const me = __s.G.me; me.money = 20000; __s.buy(me, 'hk416'); __s.buy(me, 'optic_holo', 'hk416'); __s.buy(me, 'grip_vert', 'hk416'); __s.buy(me, 'las_peq', 'hk416'); __s.buy(me, 'iii'); __s.deploy();`); await sleep(1500);
 await ev(`__s.tp(-21, 1.5, -Math.PI / 2 - 0.12, -0.03);
   const L = [...__s.G.ents.values()].filter((e) => e.bot);

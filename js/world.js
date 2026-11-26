@@ -3,6 +3,8 @@
 // boxes are merged into a handful of meshes per material with real-world-scale UVs (textures tile per metre).
 import * as THREE from 'three';
 import * as TX from './tex.js';
+import { buildProps } from './props.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // what each surface does to a bullet: res = how much penetration a metre of it eats
 export const MATS = {
@@ -19,12 +21,14 @@ export const MATS = {
 export function buildWorld(scene, mapId, quality = 'high') {
   const def = MAP_DEFS[mapId] || MAP_DEFS.hadra;
   const boxes = [];      // { min: Vector3, max: Vector3, mat, look }
+  const insts = {};      // prop kind -> [{ x, y, z, rot, sc, color }]
   const decor = new THREE.Group(); scene.add(decor);
   const looks = new Map(); // look key -> { mat: THREE.Material, scale, pos: [], nor: [], uv: [], idx: [] }
   const look = (key, mkMat, scale = 2) => { if (!looks.has(key)) looks.set(key, { mat: mkMat(), scale, pos: [], nor: [], uv: [], idx: [] }); return key; };
   const std = (o, extra = {}) => new THREE.MeshStandardMaterial({ ...o, ...extra });
 
   const B = {
+    houses: [],
     // a solid box (x0..x1, y0..y1, z0..z1); lookKey picks its appearance
     box(x0, y0, z0, x1, y1, z1, mat = 'plaster', lk = 'plaster0', solid = true) {
       const min = new THREE.Vector3(Math.min(x0, x1), Math.min(y0, y1), Math.min(z0, z1)), max = new THREE.Vector3(Math.max(x0, x1), Math.max(y0, y1), Math.max(z0, z1));
@@ -48,6 +52,23 @@ export function buildWorld(scene, mapId, quality = 'high') {
         cur = o.at + o.w;
       }
       seg(cur, len, 0, h);
+      // frames, sills, shutters and open doors on the small openings of houses
+      if ((mat === 'plaster' || mat === 'block') && th <= 0.32) for (const o of ops) {
+        if (o.w > 1.4) continue;
+        const fb = (a0, a1, y0, y1, c0, c1, k) => { if (dir === 'x') B.box(x + a0, y + y0, z + c0, x + a1, y + y1, z + c1, 'wood', k, false); else B.box(x + c0, y + y0, z + a0, x + c1, y + y1, z + a1, 'wood', k, false); };
+        const ft = 0.07, out = th / 2 + 0.03, side = (Math.round((x + z + o.at) * 7) % 2) ? 1 : -1;
+        fb(o.at - ft, o.at, o.y0, o.y1 + ft, -out, out, 'trim'); fb(o.at + o.w, o.at + o.w + ft, o.y0, o.y1 + ft, -out, out, 'trim');
+        fb(o.at - ft, o.at + o.w + ft, o.y1, o.y1 + ft, -out, out, 'trim');
+        if (o.y0 > 0.1) {
+          fb(o.at - 0.1, o.at + o.w + 0.1, o.y0 - 0.06, o.y0, -out - 0.05, out + 0.05, 'trim');                       // sill
+          const sw = o.w / 2, c = side * (th / 2 + 0.035), c2 = c + side * 0.03;
+          fb(o.at - ft - sw, o.at - ft, o.y0 + 0.02, o.y1 - 0.02, Math.min(c, c2), Math.max(c, c2), 'paint');          // shutters, open
+          fb(o.at + o.w + ft, o.at + o.w + ft + sw, o.y0 + 0.02, o.y1 - 0.02, Math.min(c, c2), Math.max(c, c2), 'paint');
+        } else if (o.at - o.w - ft > 0.05) {
+          const c = side * (th / 2 + 0.03), c2 = c + side * 0.05;
+          fb(o.at - ft - o.w, o.at - ft, 0.02, o.y1 - 0.03, Math.min(c, c2), Math.max(c, c2), 'paint');                // the door, swung open flat
+        }
+      }
     },
     // a house: four walls with doors/windows, a roof slab with a parapet, an optional second storey
     // doors: [[side, at]] sides 'n' (z0) 's' (z1) 'w' (x0) 'e' (x1); wins: same, windows at 1.0–2.0 m
@@ -80,7 +101,8 @@ export function buildWorld(scene, mapId, quality = 'high') {
         if (gap !== 'e') B.box(x1 - 0.2, top, z0 + 0.2, x1 + 0.05, top + parapet, z1 - 0.2, 'plaster', lk);
       }
       if (stairs) B.stairs(...stairs);
-      return { x0, z0, x1, z1, top };
+      const info = { x0, z0, x1, z1, top, floors, h }; B.houses.push(info);
+      return info;
     },
     // steps from (x, z) going in dir ('+x','-x','+z','-z'), up to height h, width wd
     stairs(x, z, dir, h, wd = 1.1, lk = 'concrete0', y0 = 0) {
@@ -124,6 +146,14 @@ export function buildWorld(scene, mapId, quality = 'high') {
     },
     // things that aren't solid (or are covered by a box already)
     decor(obj) { decor.add(obj); return obj; },
+    solid(x0, y0, z0, x1, y1, z1, mat = 'metal') { boxes.push({ min: new THREE.Vector3(x0, y0, z0), max: new THREE.Vector3(x1, y1, z1), mat }); },
+    // is the ground here clear of anything solid? (for scattering props)
+    free(x, z, r = 0.5, y = 0) { for (const b of boxes) if (x + r > b.min.x && x - r < b.max.x && z + r > b.min.z && z - r < b.max.z && b.max.y > y + 0.05 && b.min.y < y + 1.5) return false; return true; },
+    // one instance of a prop (see PROPS); solid: an axis-aligned collider of half-size hx/hz, height h
+    prop(kind, x, y, z, rot = 0, sc = 1, color = null, solid = null) {
+      (insts[kind] || (insts[kind] = [])).push({ x, y, z, rot, sc, color });
+      if (solid) B.solid(x - solid[0], y, z - solid[1], x + solid[0], y + solid[2], z + solid[1], solid[3] || 'metal');
+    },
   };
 
   // ---------- looks (materials) ----------
@@ -131,6 +161,8 @@ export function buildWorld(scene, mapId, quality = 'high') {
   plasTints.forEach((t, i) => look('plaster' + i, () => std(TX.plaster(t, 7 + i), { roughness: 0.95 }), 2.5));
   look('concrete0', () => std(TX.concrete(8), { roughness: 0.9 }), 3);
   look('block', () => std(TX.blocks(9), { roughness: 0.95 }), 1.6);
+  look('trim', () => std(TX.plaster(0xddd3bf, 31), { roughness: 0.9 }), 1.5);
+  look('paint', () => std(TX.woodPlanks(0x3d6b78, 17), { roughness: 0.75 }), 1.2);
   look('tile', () => std(TX.concreteFloor(6), { roughness: 0.75 }), 3);
   look('sandbag', () => std(TX.sandbag(13), { roughness: 1 }), 1.2);
   look('wood', () => std(TX.woodPlanks(0x7a5a3a, 12), { roughness: 0.85 }), 2);
@@ -143,6 +175,8 @@ export function buildWorld(scene, mapId, quality = 'high') {
 
   // ---------- the map ----------
   const meta = def.build(B, { decor, std });
+  buildProps(insts, decor, std);
+  mergeStatic(decor);
 
   // ground
   const gs = meta.size;
@@ -410,7 +444,8 @@ const MAP_DEFS = {
   hadra: {
     name: 'Al-Hadra', desc: 'A desert town at mid-afternoon: walled compounds, narrow alleys, flat roofs and a market square.',
     ground: 'sand',
-    sky: ['#4f7fb8', '#a9c3d8', '#e4d6bd'], sun: { color: 0xfff0d8, int: 3.2, dir: [-0.45, 0.8, 0.35], hemi: [0xbcd3ea, 0x8a7458, 1.1] }, fog: [0xd9cdb6, 60, 260],
+    atmo: { turbidity: 4.5, rayleigh: 1.3, mie: 0.004, g: 0.85, clouds: 0.3, skyGain: 0.32, envInt: 0.5, sunEnv: 5 },
+    sky: ['#4f7fb8', '#a9c3d8', '#e4d6bd'], sun: { color: 0xfff0d8, int: 3.2, dir: [-0.45, 0.8, 0.35], hemi: [0xbcd3ea, 0x8a7458, 1.1] }, fog: [0xcfc6b2, 90, 420],
     build(B, { decor, std }) {
       const R = TX.rng(42);
       const lk = () => 'plaster' + ((R() * 5) | 0);
@@ -483,12 +518,18 @@ const MAP_DEFS = {
       for (const sz of [-1, 1]) B.wall(-64, sz * 63.5, 128, 'x', 3, 0.6, [{ at: 58, w: 12, y0: 0, y1: 3 }], 'plaster', 'plaster3');
       for (const sx of [-1, 1]) B.wall(sx * 63.5, -63, 126, 'z', 3, 0.6, [], 'plaster', 'plaster3');
       // palm trees, power poles
-      const trunk = std({ color: 0x6b5338, roughness: 1 }), leaf = std({ color: 0x4d6a2e, roughness: 0.9, side: THREE.DoubleSide });
+      // fronds: a rib with leaflets fanning off it (alpha-cut), and a ringed trunk
+      const frond = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 512; const g = c.getContext('2d');
+        g.strokeStyle = '#6d6a2c'; g.lineWidth = 5; g.beginPath(); g.moveTo(64, 512); g.quadraticCurveTo(60, 250, 64, 0); g.stroke();
+        for (let y = 500; y > 10; y -= 9) { const L = 58 * Math.sin((y / 512) * Math.PI * 0.95 + 0.1); for (const s of [-1, 1]) { g.strokeStyle = ['#4e6b2b', '#5d7a32', '#6b7a36', '#8a8a44'][(y / 9 | 0) % 4]; g.lineWidth = 4; g.beginPath(); g.moveTo(64, y); g.quadraticCurveTo(64 + s * L * 0.5, y - 10, 64 + s * L, y - 24); g.stroke(); } }
+        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+      const bark = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 256; const g = c.getContext('2d'); g.fillStyle = '#6b5338'; g.fillRect(0, 0, 64, 256); for (let y = 0; y < 256; y += 10) { g.fillStyle = 'rgba(40,28,18,0.6)'; g.fillRect(0, y, 64, 3); g.fillStyle = 'rgba(160,130,95,0.25)'; g.fillRect(0, y + 3, 64, 2); } const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 6); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+      const trunk = std({ map: bark, roughness: 1 }), leaf = std({ map: frond, alphaTest: 0.35, roughness: 0.85, side: THREE.DoubleSide });
       for (let k = 0; k < 14; k++) {
         const x = (R() - 0.5) * 116, z = (R() - 0.5) * 116; if (Math.abs(x) < 5 || Math.abs(z) < 4) continue;
         const g = new THREE.Group(); g.position.set(x, 0, z); const h = 6 + R() * 4;
         const t = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, h, 8), trunk); t.position.y = h / 2; t.rotation.z = (R() - 0.5) * 0.15; t.castShadow = true; g.add(t);
-        for (let f = 0; f < 8; f++) { const fr = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 3.4), leaf); fr.position.y = h; fr.rotation.set(-1.0 - R() * 0.4, f / 8 * 6.28, 0, 'YXZ'); fr.translateY(1.5); fr.castShadow = true; g.add(fr); }
+        for (let f = 0; f < 10; f++) { const fr = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 3.6), leaf); fr.position.y = h; fr.rotation.set(-0.9 - R() * 0.6, f / 10 * 6.28 + R() * 0.3, (R() - 0.5) * 0.4, 'YXZ'); fr.translateY(1.5); fr.castShadow = true; g.add(fr); }
         decor.add(g);
       }
       const pole = std({ color: 0x5b4b3a, roughness: 1 }), wireM = new THREE.LineBasicMaterial({ color: 0x111111 });
@@ -498,6 +539,29 @@ const MAP_DEFS = {
         const a = poles[i], b = poles[i + 1], pts = [];
         for (let k = 0; k <= 10; k++) { const t = k / 10; pts.push(new THREE.Vector3(a.x + off, 7.6 - Math.sin(t * Math.PI) * 0.8, a.z + (b.z - a.z) * t)); }
         decor.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireM));
+      }
+      // ---- lived in: drums, tyres, scrub, rubble, rubbish; tanks, dishes and AC units on the houses ----
+      const drumCols = [0x3a5a7a, 0x8a3a2a, 0x4a5a3a, 0x9a8a3a, 0x5a5a5a];
+      for (let i = 0; i < 90; i++) {
+        const x = (R() - 0.5) * 120, z = (R() - 0.5) * 120;
+        const k = R();
+        if (k < 0.18) { if (B.free(x, z, 0.4)) B.prop('barrel', x, 0, z, R() * 6, 1, drumCols[(R() * 5) | 0], [0.29, 0.29, 0.88]); if (R() < 0.5 && B.free(x + 0.62, z, 0.35)) B.prop('barrel', x + 0.62, 0, z, R() * 6, 1, drumCols[(R() * 5) | 0], [0.29, 0.29, 0.88]); }
+        else if (k < 0.3) { if (B.free(x, z, 0.4)) for (let t = 0; t < 1 + R() * 3; t++) B.prop('tire', x + (R() - 0.5) * 0.2, t * 0.21, z + (R() - 0.5) * 0.2, R() * 6, 1); }
+        else if (k < 0.6) { if (B.free(x, z, 0.4)) B.prop('shrub', x, 0, z, R() * 6, 0.7 + R() * 0.8); }
+        else if (k < 0.8) { if (B.free(x, z, 0.6)) for (let t = 0; t < 4 + R() * 8; t++) B.prop('rubble', x + (R() - 0.5) * 1.6, 0, z + (R() - 0.5) * 1.6, R() * 6, 0.5 + R() * 1.3); }
+        else if (k < 0.9) { if (B.free(x, z, 0.4)) B.prop('rock', x, 0, z, R() * 6, 0.6 + R() * 1.2); }
+        else { if (B.free(x, z, 0.5)) for (let t = 0; t < 2 + R() * 3; t++) B.prop('bag', x + (R() - 0.5) * 0.9, 0, z + (R() - 0.5) * 0.9, R() * 6, 0.7 + R() * 0.5); }
+      }
+      for (const hs of B.houses) {
+        const cx = (hs.x0 + hs.x1) / 2, cz = (hs.z0 + hs.z1) / 2;
+        if (R() < 0.55) B.prop('tank', hs.x0 + 1 + R() * (hs.x1 - hs.x0 - 2), hs.top, hs.z0 + 1 + R() * (hs.z1 - hs.z0 - 2), R() * 6, 1, null, [0.55, 0.55, 1.35, 'metal']);
+        if (R() < 0.4) B.prop('dish', cx + (R() - 0.5) * 2, hs.top, cz + (R() - 0.5) * 2, R() * 6, 1);
+        // an AC unit hanging on a wall, under the roof
+        if (R() < 0.6) { const side = (R() * 4) | 0, y = hs.top - 1.6 - R() * 0.6, t = 0.2 + R() * 0.6;
+          if (side === 0) B.prop('ac', hs.x0 + t * (hs.x1 - hs.x0), y, hs.z0 - 0.15, Math.PI, 1);
+          else if (side === 1) B.prop('ac', hs.x0 + t * (hs.x1 - hs.x0), y, hs.z1 + 0.15, 0, 1);
+          else if (side === 2) B.prop('ac', hs.x0 - 0.15, y, hs.z0 + t * (hs.z1 - hs.z0), -Math.PI / 2, 1);
+          else B.prop('ac', hs.x1 + 0.15, y, hs.z0 + t * (hs.z1 - hs.z0), Math.PI / 2, 1); }
       }
       return {
         size: [128, 128],
@@ -514,6 +578,7 @@ const MAP_DEFS = {
   kessel: {
     name: 'Kessel Freight Yard', desc: 'A container port on an overcast evening: stacked boxes, a warehouse, an office block and the cranes.',
     ground: 'asphalt',
+    atmo: { turbidity: 12, rayleigh: 2.2, mie: 0.02, g: 0.75, clouds: 0.9, cloudColor: 0x9da2a8, skyGain: 0.22, envInt: 0.55, sunEnv: 2 },
     sky: ['#454c55', '#8c8f92', '#b5aea2'], sun: { color: 0xffe2c0, int: 2.0, dir: [0.6, 0.45, -0.4], hemi: [0x9aa6b4, 0x4a4640, 1.25] }, fog: [0x9a9890, 40, 200],
     build(B, { decor, std }) {
       const R = TX.rng(7);
@@ -569,6 +634,22 @@ const MAP_DEFS = {
       // perimeter fence
       for (const sx of [-1, 1]) B.wall(sx * 59.6, -49, 98, 'z', 3, 0.3, [], 'block', 'block');
       B.wall(-60, -49.6, 120, 'x', 3, 0.3, [{ at: 52, w: 8, y0: 0, y1: 3 }], 'block', 'block');
+      // ---- the yard: barriers, pallets, drums, reels, puddles, lane markings ----
+      for (const [x, z, r] of [[-20, -38, 0], [-17.9, -38, 0], [20, -38, 0], [22.1, -38, 0], [-30, 8, 1], [30, -6, 1], [-12, 30, 0], [12, 32, 0], [36, 18, 1], [-44, -20, 1]]) {
+        if (!B.free(x, z, 1.1)) continue;
+        B.prop('barrier', x, 0, z, r ? Math.PI / 2 : 0, 1, null, r ? [1.0, 0.3, 0.81, 'concrete'] : [0.3, 1.0, 0.81, 'concrete']);
+      }
+      for (let i = 0; i < 70; i++) {
+        const x = (R() - 0.5) * 112, z = (R() - 0.5) * 92, k = R();
+        if (k < 0.25) { if (B.free(x, z, 0.8)) { const n = 1 + ((R() * 6) | 0); for (let t = 0; t < n; t++) B.prop('pallet', x, t * 0.145, z, (R() < 0.5 ? 0 : Math.PI / 2) + (R() - 0.5) * 0.1, 1); B.solid(x - 0.6, 0, z - 0.6, x + 0.6, n * 0.145, z + 0.6, 'wood'); } }
+        else if (k < 0.45) { if (B.free(x, z, 0.4)) B.prop('barrel', x, 0, z, R() * 6, 1, [0x2e4e7a, 0x7a2e24, 0x2e5a34, 0xb08a24][(R() * 4) | 0], [0.29, 0.29, 0.88]); }
+        else if (k < 0.55) { if (B.free(x, z, 0.8)) B.prop('reel', x, 0, z, R() * 6, 0.8 + R() * 0.4, null, [0.6, 0.6, 1.4, 'wood']); }
+        else if (k < 0.75) { if (B.free(x, z, 1.5)) B.prop('puddle', x, 0, z, R() * 6, [1 + R() * 2.5, 1, 0.6 + R() * 1.5]); }
+        else if (k < 0.85) { if (B.free(x, z, 0.6)) B.prop('crate', x, 0, z, R() * 0.4, 0.7 + R() * 0.5, null, [0.4, 0.4, 0.8, 'wood']); }
+        else { if (B.free(x, z, 0.4)) for (let t = 0; t < 1 + R() * 4; t++) B.prop('tire', x, t * 0.21, z, R() * 6, 1); }
+      }
+      // painted lane lines down the aisles
+      for (const x of [-11, 0, 11, 21]) for (let z = -40; z < 44; z += 5) if (B.free(x, z, 0.1)) B.prop('line', x, 0, z, 0, 1);
       return {
         size: [120, 100],
         spawns: [
@@ -582,3 +663,22 @@ const MAP_DEFS = {
   },
 };
 export const MAP_LIST = Object.entries(MAP_DEFS).map(([id, d]) => ({ id, name: d.name, desc: d.desc }));
+
+// static decor (palms, poles, stalls, cars, cranes) merged into one mesh per material: hundreds of draw calls become a few
+function mergeStatic(group) {
+  group.updateMatrixWorld(true);
+  const by = new Map(), drop = [];
+  group.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.material.transparent && !o.material.alphaTest) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(o.matrixWorld);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    if (!g.attributes.uv || !g.attributes.normal) return;
+    const key = o.material; if (!by.has(key)) by.set(key, { list: [], shadow: o.castShadow });
+    by.get(key).list.push(g); drop.push(o);
+  });
+  for (const o of drop) o.removeFromParent();
+  for (const [m, { list, shadow }] of by) { const merged = mergeGeometries(list); if (!merged) continue; const mesh = new THREE.Mesh(merged, m); mesh.castShadow = shadow; mesh.receiveShadow = true; group.add(mesh); for (const g of list) g.dispose(); }
+  // empty groups left behind
+  const empties = []; group.traverse((o) => { if (o !== group && !o.isMesh && !o.isLine && !o.isSprite && !o.isInstancedMesh && !o.children.length) empties.push(o); }); for (const o of empties) o.removeFromParent();
+}

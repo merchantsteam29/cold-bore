@@ -67,7 +67,8 @@ export const sand = (seed = 3) => pair('sand' + seed, (g, s) => {
   blotch(g, s, s, r, 40, 'rgba(120,92,58,A)', 30, 120, 0.05, 0.18);
   blotch(g, s, s, r, 30, 'rgba(220,200,160,A)', 20, 90, 0.05, 0.15);
   noise(g, s, s, r, 0.22, 1, 1.2); noise(g, s, s, r, 0.12, 2, 0.4);
-  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(${90 + r() * 60},${80 + r() * 40},${60 + r() * 30},${0.4 + r() * 0.5})`; const z = 1 + r() * 3; g.beginPath(); g.ellipse(r() * s, r() * s, z, z * (0.6 + r() * 0.4), r() * 3, 0, 7); g.fill(); }
+  // pebbles: the same brown, lighter or darker (independent channels made confetti)
+  for (let i = 0; i < 260; i++) { const k = 0.55 + r() * 0.75; g.fillStyle = `rgba(${(150 * k) | 0},${(124 * k) | 0},${(92 * k) | 0},${0.4 + r() * 0.5})`; const z = 1 + r() * 3; g.beginPath(); g.ellipse(r() * s, r() * s, z, z * (0.6 + r() * 0.4), r() * 3, 0, 7); g.fill(); }
   // tyre ruts / foot traffic
   g.strokeStyle = 'rgba(90,70,45,0.08)'; g.lineWidth = 14; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, r() * s); g.bezierCurveTo(s * 0.3, r() * s, s * 0.6, r() * s, s, r() * s); g.stroke(); }
 }, 512, 3);
@@ -197,9 +198,9 @@ export function camo(u, seed = 21) {
   else if (u.kind === 'scale') for (let i = 0; i < 260; i++) { g.strokeStyle = hex(cols[i % cols.length]); g.lineWidth = 2 + r() * 3; g.beginPath(); g.arc(r() * s, r() * s, 4 + r() * 10, r() * 3, r() * 3 + 3); g.stroke(); }
   else blotch(g, s, s, r, 30, 'rgba(255,255,255,A)', 10, 50, 0.01, 0.04);
   // the weave of the ripstop
-  for (let x = 0; x < s; x += 6) { g.fillStyle = 'rgba(0,0,0,0.06)'; g.fillRect(x, 0, 1, s); g.fillRect(0, x, s, 1); }
+  for (let x = 0; x < s; x += 6) { g.fillStyle = 'rgba(0,0,0,0.02)'; g.fillRect(x, 0, 1, s); g.fillRect(0, x, s, 1); }
   noise(g, s, s, r, 0.12, 1, 1);
-  const t = tex(c, name); normalOf(c, name + ':n', 1.4);
+  const t = tex(c, name); normalOf(c, name + ':n', 0.7);
   return { map: t, normalMap: cache.get(name + ':n') };
 }
 export const skin = (tone = 0xc89474, seed = 30) => pair('skin' + tone, (g, s) => {

@@ -23,7 +23,7 @@ export function createViewmodel(aspect = 16 / 9) {
   const setUniform = (u) => { uni = u; const C = TX.camo(UNIFORM[u] || UNIFORM.multicam); for (const a of [armR, armL]) { const s = a.getObjectByName('sleeve'); s.material.map = C.map; s.material.normalMap = C.normalMap; s.material.needsUpdate = true; } };
   setUniform(uni);
 
-  const S = { ads: 0, kick: 0, kickR: 0, swayX: 0, swayY: 0, bob: 0, lower: 0, roll: 0, jump: 0 };
+  const S = { ads: 0, kick: 0, kv: 0, kickR: 0, swayX: 0, swayY: 0, bob: 0, lower: 0, roll: 0, jump: 0, land: 0, lv: 0 };
   function clear() { if (item) item.removeFromParent(); item = null; info = null; }
   function setGun(id, att, finish) { clear(); item = makeGun(id, { att, finish }); item.traverse((o) => { if (o.isMesh) o.castShadow = false; }); info = item.userData.info; holder.add(item); kind = 'gun'; }
   function setMelee(id) { clear(); item = makeMelee(id); holder.add(item); kind = id === 'fists' ? 'fists' : 'melee'; info = null; }
@@ -37,7 +37,14 @@ export function createViewmodel(aspect = 16 / 9) {
     S.ads += (st.ads - S.ads) * Math.min(1, dt / Math.max(0.05, st.adsTime || 0.25) * 3);
     S.swayX += (-(st.dx || 0) * 0.00018 - S.swayX) * Math.min(1, dt * 8); S.swayY += ((st.dy || 0) * 0.00018 - S.swayY) * Math.min(1, dt * 8);
     S.swayX = Math.max(-0.05, Math.min(0.05, S.swayX)); S.swayY = Math.max(-0.05, Math.min(0.05, S.swayY));
-    S.kick += (st.kick || 0); S.kick *= Math.exp(-dt * 14); S.kickR = (st.kick ? (Math.random() - 0.5) : S.kickR * Math.exp(-dt * 10));
+    // recoil as a spring: it kicks back, overshoots a little and settles (sub-stepped so it's stable at low fps)
+    if (st.kick) { S.kv += st.kick * 13; S.kickR = Math.random() - 0.5; }
+    for (let i = 0, n = Math.ceil(dt / 0.004), h = dt / n; i < n; i++) { S.kv += (-240 * S.kick - 19 * S.kv) * h; S.kick += S.kv * h; }
+    S.kickR *= Math.exp(-dt * 6);
+    // landing: the gun dips and comes back up
+    if (st.land) S.lv -= st.land;
+    for (let i = 0, n = Math.ceil(dt / 0.004), h = dt / n; i < n; i++) { S.lv += (-160 * S.land - 16 * S.lv) * h; S.land += S.lv * h; }
+    S.roll += ((st.strafe || 0) * 0.07 - S.roll) * Math.min(1, dt * 6);
     S.lower += ((st.sprint ? 1 : 0) - S.lower) * k;
     const sw = st.switching || 0;
     const a = S.ads, isP = info?.pistol, bobAmt = (1 - a * 0.85) * Math.min(1, st.speed / 5);
@@ -53,7 +60,8 @@ export function createViewmodel(aspect = 16 / 9) {
     const pos = hip.clone().lerp(adsP, a);
     pos.x += bx + S.swayX * (1 - a * 0.7); pos.y += by + S.swayY * (1 - a * 0.7);
     pos.z += S.kick * 0.06; pos.y -= sw * 0.35 + S.lower * 0.08; pos.x += S.lower * 0.04;
-    let rx = S.kick * 0.18 * (1 - a * 0.4) - S.lower * 0.55 - sw * 0.8, ry = S.kickR * S.kick * 0.04 + S.lower * 0.6 + S.swayX * 2, rz = -(st.lean || 0) * 0.15 + S.kickR * S.kick * 0.03 - S.lower * 0.2;
+    pos.y += S.land * 0.06;
+    let rx = S.kick * 0.2 * (1 - a * 0.45) - S.lower * 0.55 - sw * 0.8 + S.land * 0.1, ry = S.kickR * Math.abs(S.kick) * 0.08 + S.lower * 0.6 + S.swayX * 2, rz = -(st.lean || 0) * 0.15 + S.kickR * Math.abs(S.kick) * 0.06 - S.lower * 0.2 - S.roll * (1 - a * 0.7);
     // the reload: tilt the gun, mag out, mag in, charge it
     let magOff = 0, leftT = null;
     if (st.reload >= 0 && kind === 'gun') {

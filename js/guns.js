@@ -4,10 +4,21 @@
 import * as THREE from 'three';
 import * as TX from './tex.js';
 import { GUNS, ATTACH, MELEE, FINISH } from './data.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// rounded parts (real guns have no sharp box edges), cached by size
+const geoCache = new Map();
+function rbox(w, h, d) {
+  const k = w.toFixed(4) + h.toFixed(4) + d.toFixed(4);
+  if (!geoCache.has(k)) { const r = Math.min(0.006, Math.min(w, h, d) * 0.24); geoCache.set(k, r > 0.0008 ? new RoundedBoxGeometry(w, h, d, 2, r) : new THREE.BoxGeometry(w, h, d)); }
+  return geoCache.get(k);
+}
 
 const matCache = new Map();
 function mat(key, make) { if (!matCache.has(key)) matCache.set(key, make()); return matCache.get(key); }
-const steel = () => mat('steel', () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.38, metalness: 0.75, map: TX.polymer(0x3a3d40) }));
+const steel = () => mat('steel', () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.85, map: TX.polymer(0x46494c) }));
+const dark = () => mat('dark', () => new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.8, metalness: 0.2 }));
 const black = () => mat('black', () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0.25, map: TX.polymer(0x2a2b2d) }));
 const K2 = () => mat('blackDS', () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0.25, map: TX.polymer(0x2a2b2d), side: THREE.DoubleSide }));
 const rubber = () => mat('rubber', () => new THREE.MeshStandardMaterial({ color: 0x111112, roughness: 0.95 }));
@@ -23,8 +34,8 @@ export function makeGun(id, { finish = 'black', att = [] } = {}) {
   const G = GUNS[id]; if (!G) return makeGun('glock17');
   const root = new THREE.Group(); root.name = 'gun:' + id;
   const F = finishMat(finish, G.tint), S = steel(), K = black();
-  const box = (w, h, d, x, y, z, m = F, rx = 0, parent = root) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; parent.add(o); return o; };
-  const cyl = (r, len, x, y, z, m = S, r2 = r, seg = 12, parent = root) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r2, len, seg), m); o.rotation.x = Math.PI / 2; o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  const box = (w, h, d, x, y, z, m = F, rx = 0, parent = root) => { const o = new THREE.Mesh(rbox(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; parent.add(o); return o; };
+  const cyl = (r, len, x, y, z, m = S, r2 = r, seg = 16, parent = root) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r2, len, seg), m); o.rotation.x = Math.PI / 2; o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
   const info = { muzzle: new THREE.Vector3(), rail: null, sightY: 0.1, sightZ: 0, left: new THREE.Vector3(0, 0.03, -0.25), eject: new THREE.Vector3(0.03, 0.07, -0.05), mag: null, magHome: new THREE.Vector3(), under: null, side: null, pistol: G.slot === 'sidearm', len: 0.8 };
   const atts = att.map((a) => ATTACH[a] ? a : null).filter(Boolean);
   const has = (slot) => atts.find((a) => ATTACH[a].slot === slot);
@@ -178,6 +189,42 @@ export function makeGun(id, { finish = 'black', att = [] } = {}) {
     }
   }
 
+  // ---------- the small parts that make it read as a real gun ----------
+  const D = dark(), fam = G.model, longGun = !info.pistol && fam !== 'revolver';
+  const teeth = (y, z0, len, w = 0.05) => { for (let z = z0; z > z0 - len; z -= 0.0105) box(w * 0.98, 0.004, 0.0052, 0, y, z, K); };
+  const tor = (r, t, x, y, z, m, rotY = Math.PI / 2) => { const o = new THREE.Mesh(new THREE.TorusGeometry(r, t, 6, 18), m); o.position.set(x, y, z); o.rotation.y = rotY; root.add(o); return o; };
+  // trigger and guard
+  if (fam !== 'p90') { const ty = info.pistol ? 0.008 : -0.014, tz = info.pistol ? -0.035 : -0.03; box(0.006, 0.022, 0.008, 0, ty, tz, S, 0.35); tor(0.018, 0.0028, 0, ty - 0.004, tz - 0.004, K); }
+  if (fam === 'ar' || fam === 'scar' || fam === 'mcx') {
+    teeth(0.12, 0.04, 0.2); if (!has('optic')) teeth(0.112, -0.13, 0.2, 0.02);
+    box(0.04, 0.012, 0.018, 0, 0.098, 0.088, K);                                             // charging handle
+    box(0.002, 0.016, 0.05, 0.03, 0.07, -0.03, D);                                            // ejection port
+    cyl(0.007, 0.018, 0.034, 0.08, 0.02, K).rotation.set(0, 0, Math.PI / 2);                  // forward assist
+    for (let i = 0; i < 4; i++) for (const sx of [-1, 1]) box(0.002, 0.008, 0.022, sx * 0.033, 0.07, -0.16 - i * 0.05, D); // M-LOK slots
+    for (let i = 0; i < 3; i++) box(0.03, 0.003, 0.04, 0, -0.035 + i * 0.012 - 0.06, -0.075, K, 0.14); // magazine ribs
+    cyl(0.018, 0.012, 0, 0.06, 0.072, S);                                                     // castle nut
+    if (!muzzleAtt()) { cyl(0.011, 0.05, 0, info.muzzle.y, info.muzzle.z - 0.025, S, 0.011, 8); info.muzzle.z -= 0.05; }   // A2 birdcage
+  } else if (fam === 'ak') {
+    box(0.003, 0.03, 0.06, 0.028, 0.06, -0.02, S);                                            // safety lever
+    for (let i = 0; i < 5; i++) box(0.03, 0.002, 0.008, 0, 0.105, 0.06 - i * 0.03, S);       // dust cover ribs
+    box(0.03, 0.006, 0.05, 0, -0.03, -0.1, K, 0.32);                                         // mag catch / ribs
+    box(0.002, 0.014, 0.04, 0.026, 0.075, -0.03, D);                                          // ejection port
+  } else if (info.pistol && fam !== 'revolver') {
+    const L = (G.long || 1) * (fam === 'deagle' ? 1.35 : 1);
+    for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) box(0.002, 0.026, 0.003, sx * 0.0155, 0.052, 0.018 - i * 0.006, D); // slide serrations
+    box(0.002, 0.012, 0.03, 0.0155, 0.058, -0.06 * L, D);                                     // ejection port
+    box(0.024, 0.008, 0.044, 0, -0.088, 0.03, K, -0.25);                                      // mag base plate
+  } else if (fam === 'bolt' || fam === 'm14' || fam === 'barrett') {
+    box(0.002, 0.016, 0.07, 0.031, 0.075, -0.02, D);
+    if (has('optic')) for (const z of [-0.02, -0.12]) tor(0.022, 0.004, 0, info.rail.y + 0.042, z, K, 0);    // scope rings
+    cyl(0.004, 0.03, 0, -0.01, 0.3, S).rotation.set(0, 0, Math.PI / 2);                       // sling swivel
+  } else if (fam === 'pump' || fam === 'benelli' || fam === 'ks12') {
+    box(0.002, 0.02, 0.06, 0.027, 0.06, -0.04, D);
+    for (let i = 0; i < 6; i++) box(0.052, 0.003, 0.006, 0, 0.07, -0.25 - i * 0.022, D);     // fore-end grooves
+  }
+  if (longGun) cyl(0.004, 0.026, 0, -0.01, 0.2, S).rotation.set(0, 0, Math.PI / 2);          // rear sling swivel
+  function muzzleAtt() { return has('muzzle'); }
+
   // ---------- attachments ----------
   const opt = has('optic');
   if (opt && info.rail) {
@@ -216,6 +263,21 @@ export function makeGun(id, { finish = 'black', att = [] } = {}) {
     if (ATTACH[las].light) { cyl(0.011, 0.11, s.x, s.y, s.z, K); info.lightAt = new THREE.Vector3(s.x, s.y, s.z - 0.06); }
     else { box(0.03, 0.03, 0.09, s.x, s.y, s.z, K); info.laserAt = new THREE.Vector3(s.x, s.y + 0.006, s.z - 0.046); }
   }
+  // ---------- one draw call per material ----------
+  // everything that doesn't move on its own is merged (the magazine, the pump and the reticle stay separate)
+  root.updateMatrixWorld(true);
+  const keep = new Set([info.mag, info.pump, info.reticle].filter(Boolean)), groups = new Map(), drop = [];
+  root.traverse((o) => {
+    if (!o.isMesh || keep.has(o) || o.material.transparent) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(o.matrixWorld);
+    for (const a of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(a)) g.deleteAttribute(a);
+    if (!g.attributes.uv) return;
+    if (!groups.has(o.material)) groups.set(o.material, []);
+    groups.get(o.material).push(g); drop.push(o);
+  });
+  for (const o of drop) o.removeFromParent();
+  for (const [m, list] of groups) { const merged = mergeGeometries(list); if (!merged) continue; const mesh = new THREE.Mesh(merged, m); mesh.castShadow = true; root.add(mesh); for (const g of list) g.dispose(); }
   root.userData.info = info;
   return root;
 }

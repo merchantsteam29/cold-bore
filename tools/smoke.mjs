@@ -48,9 +48,12 @@ const res = await ev(`const me = __s.G.me, b = __s.G.ents.get('${r}');
   me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
   return { hp: b.hp, dist: d.length().toFixed(1) };`);
 console.log('target', r, JSON.stringify(res));
+console.log('line of sight', await ev(`const W = await import('./js/world.js'); const b = __s.G.ents.get('${r}'), o = __s.camera.position, t = b.body.headPos.clone().add(new o.constructor(0, 0.1, 0)); const d = t.clone().sub(o); const h = W.raycast(__s.G.W, o, d.clone().normalize(), d.length()); return h ? 'blocked by ' + h.mat + ' at ' + h.t.toFixed(2) + ' m, box ' + JSON.stringify(h.box && [h.box.min, h.box.max]) : 'clear';`));
 await sleep(200);
 await ev(`__s.input.rmb = true`); await sleep(900); await shot('5b-ads');
-await ev(`__s.input.lmbHit = true; __s.input.lmb = true;`); await sleep(120); await ev(`__s.input.lmb = false; __s.input.rmb = false;`);
+// up to three trigger pulls (software rendering is slow: a frame can take longer than a click)
+for (let k = 0; k < 3 && await ev(`return __s.G.ents.get('${r}').alive`); k++) { await ev(`__s.input.lmbHit = true; __s.input.lmb = true;`); await sleep(700); await ev(`__s.input.lmb = false;`); await sleep(500); }
+await ev(`__s.input.rmb = false;`);
 await sleep(600);
 const after = await ev(`const b = __s.G.ents.get('${r}'); return { alive: b.alive, hp: Math.round(b.hp), dead: b.body?.dead, myKills: __s.G.me.kills, money: __s.G.me.money }`);
 console.log('after shot:', JSON.stringify(after));

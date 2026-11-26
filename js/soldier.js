@@ -7,6 +7,26 @@ import * as TX from './tex.js';
 import { UNIFORM, TEAM } from './data.js';
 import { makeGun, makeMelee } from './guns.js';
 import { boxesNear } from './world.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// merges every mesh under a group into one mesh per material (positions relative to the group)
+function mergeGroup(group) {
+  group.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(group.matrixWorld).invert(), by = new Map(), drop = [];
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    if (!g.attributes.uv) return;
+    if (!by.has(o.material)) by.set(o.material, []);
+    by.get(o.material).push(g); drop.push(o);
+  });
+  for (const o of drop) o.removeFromParent();
+  for (const c of [...group.children]) if (!c.isMesh && !c.children.length) c.removeFromParent();
+  for (const [m, list] of by) { const mesh = new THREE.Mesh(mergeGeometries(list), m); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); for (const g of list) g.dispose(); }
+}
 
 const J = ['pelvis', 'spine', 'neck', 'head', 'shL', 'elL', 'haL', 'shR', 'elR', 'haR', 'hipL', 'knL', 'ftL', 'hipR', 'knR', 'ftR', 'chest'];
 const I = Object.fromEntries(J.map((n, i) => [n, i]));
@@ -54,53 +74,120 @@ export class Soldier {
 
   build() {
     const U = UNIFORM[this.o.uniform] || UNIFORM.multicam, C = TX.camo(U);
-    const uni = sm('uni' + this.o.uniform, () => new THREE.MeshStandardMaterial({ map: C.map, normalMap: C.normalMap, roughness: 0.95 }));
+    const uni = sm('uni' + this.o.uniform, () => new THREE.MeshStandardMaterial({ map: C.map, normalMap: C.normalMap, roughness: 0.92 }));
     const gear = sm('gear', () => { const t = TX.cordura(0x6e624a); return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, roughness: 0.95 }); });
     const gearBlk = sm('gearB', () => { const t = TX.cordura(0x2b2b2a); return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, roughness: 0.95 }); });
-    const skinM = sm('skin', () => new THREE.MeshStandardMaterial({ map: TX.skin(0xb98564).map, roughness: 0.7 }));
-    const boot = sm('boot', () => lam(0x3b2e22));
-    const glove = sm('glove', () => lam(0x2a2925));
+    const gearR = sm('gearR', () => { const t = TX.cordura(0x4c5040); return new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normalMap, roughness: 0.95 }); });
+    const skinM = sm('skin', () => new THREE.MeshStandardMaterial({ map: TX.skin(0xb98564).map, roughness: 0.62 }));
+    const boot = sm('boot', () => lam(0x4a3a2a, { roughness: 0.8 })), sole = sm('sole', () => lam(0x1a1816));
+    const glove = sm('glove', () => lam(0x3a362e, { roughness: 0.85 }));
+    const polyM = sm('poly', () => lam(0x1d1e20, { roughness: 0.5, metalness: 0.3 }));
+    const hair = sm('hair', () => lam(0x2a1d14));
     const team = this.o.team >= 0 ? sm('band' + this.o.team, () => lam(TEAM[this.o.team].hex, { emissive: TEAM[this.o.team].hex, emissiveIntensity: 0.25 })) : null;
-    const add = (seg, geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; this.seg(seg).add(m); return m; };
-    // belly / hips
-    add('belly', new THREE.BoxGeometry(0.33, 0.26, 0.2), uni, 0, 0.11, 0);
-    add('belly', new THREE.BoxGeometry(0.35, 0.06, 0.22), gear, 0, 0.02, 0);                       // belt
-    // chest, with whatever armour is worn
-    add('chest', new THREE.BoxGeometry(0.38, 0.28, 0.21), uni, 0, 0.13, 0);
+    const G = (k, f) => sm('g:' + k, f);
+    const rb = (w, h, d, r = 0.02) => G(`rb${w}|${h}|${d}|${r}`, () => new RoundedBoxGeometry(w, h, d, 2, Math.min(r, Math.min(w, h, d) / 2 - 0.001)));
+    const cap = (r, len) => G(`cap${r}|${len}`, () => new THREE.CapsuleGeometry(r, Math.max(0.001, len), 4, 10));
+    const sph = (r) => G('s' + r, () => new THREE.SphereGeometry(r, 16, 12));
+    const add = (seg, geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1, parent = null) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz); m.castShadow = true; m.receiveShadow = true; (parent || this.seg(seg)).add(m); return m; };
+    // ---- hips and belt (belly segment: pelvis up to the spine) ----
+    add('belly', rb(0.32, 0.27, 0.2, 0.07), uni, 0, 0.1, 0);
+    add('belly', rb(0.35, 0.055, 0.23, 0.02), gearBlk, 0, 0.0, 0);                 // war belt
+    add('belly', rb(0.07, 0.08, 0.04, 0.012), gear, -0.13, -0.02, -0.08);          // IFAK pouch
+    add('belly', rb(0.08, 0.07, 0.05, 0.012), gear, 0.14, 0.0, 0.09);              // dump pouch
+    // ---- the chest, and whatever armour is worn over it ----
+    add('chest', rb(0.37, 0.3, 0.21, 0.08), uni, 0, 0.13, 0);
+    for (const sx of [-1, 1]) add('chest', sph(0.068), uni, sx * 0.18, 0.24, 0, 0, 0, 0, 1, 0.9, 1);   // shoulders
     if (this.o.armor !== 'none') {
-      const g = this.o.armor === 'iiia' ? gearBlk : gear, th = this.o.armor === 'iiia' ? 0.045 : 0.07;
-      add('chest', new THREE.BoxGeometry(0.34, 0.3, th), g, 0, 0.12, -0.105 - th / 2 + 0.02);        // front plate
-      add('chest', new THREE.BoxGeometry(0.34, 0.3, th), g, 0, 0.12, 0.105 + th / 2 - 0.02);         // back plate
-      if (this.o.armor !== 'iiia') for (let i = 0; i < 3; i++) add('chest', new THREE.BoxGeometry(0.08, 0.12, 0.05), g, -0.11 + i * 0.11, 0.02, -0.16); // mag pouches
+      const soft = this.o.armor === 'iiia', g = soft ? gearBlk : gear, th = soft ? 0.04 : 0.065;
+      add('chest', rb(0.33, 0.29, th, 0.025), g, 0, 0.13, -0.1 - th / 2 + 0.015);    // front plate bag
+      add('chest', rb(0.33, 0.31, th, 0.025), g, 0, 0.13, 0.1 + th / 2 - 0.015);     // back plate bag
+      for (const sx of [-1, 1]) add('chest', rb(0.05, 0.16, 0.2, 0.02), g, sx * 0.185, 0.07, 0);   // cummerbund
+      for (const sx of [-1, 1]) add('chest', rb(0.06, 0.03, 0.22, 0.01), g, sx * 0.12, 0.29, 0);  // shoulder straps
+      if (!soft) {
+        for (let i = 0; i < 3; i++) { add('chest', rb(0.075, 0.11, 0.05, 0.012), g, -0.09 + i * 0.09, 0.05, -0.155); add('chest', rb(0.06, 0.03, 0.03, 0.006), polyM, -0.09 + i * 0.09, 0.115, -0.152); } // pouches, mags showing
+        add('chest', rb(0.05, 0.13, 0.04, 0.01), gearBlk, -0.13, 0.17, -0.13);   // radio
+        add('chest', G('ant', () => new THREE.CylinderGeometry(0.004, 0.004, 0.22, 5)), polyM, -0.14, 0.33, -0.12, 0, 0, 0.15);
+        add('chest', rb(0.22, 0.32, 0.07, 0.03), gearR, 0, 0.1, 0.17);              // hydration pack
+      }
     }
-    // neck and head
-    add('neck', new THREE.CylinderGeometry(0.05, 0.055, 0.12, 8), skinM, 0, 0.06, 0);
+    // ---- neck and head ----
+    add('neck', cap(0.05, 0.06), skinM, 0, 0.06, 0);
     const head = new THREE.Group(); this.seg('head').add(head); this.headG = head;
-    const hm = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 12), skinM); hm.scale.set(0.95, 1.12, 1.05); hm.position.y = 0.1; hm.castShadow = true; head.add(hm);
-    const eyeM = sm('eye', () => lam(0x1a1410));
-    for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 5), eyeM); e.position.set(s * 0.035, 0.12, -0.092); head.add(e); }
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.04, 0.03), skinM); nose.position.set(0, 0.095, -0.1); head.add(nose);
+    add(null, sph(0.1), skinM, 0, 0.105, 0, 0, 0, 0, 0.9, 1.08, 1.02, head);                 // skull
+    add(null, rb(0.13, 0.08, 0.12, 0.04), skinM, 0, 0.05, -0.022, 0.15, 0, 0, 1, 1, 1, head); // jaw
+    for (const s of [-1, 1]) add(null, sph(0.022), skinM, s * 0.09, 0.1, 0.005, 0, 0, 0, 0.5, 1, 0.8, head);  // ears
+    add(null, rb(0.024, 0.045, 0.035, 0.01), skinM, 0, 0.09, -0.103, -0.2, 0, 0, 1, 1, 1, head); // nose
+    add(null, rb(0.11, 0.012, 0.02, 0.005), hair, 0, 0.142, -0.092, 0, 0, 0, 1, 1, 1, head);     // brows
+    const eyeM = sm('eye', () => lam(0x18120e));
+    for (const s of [-1, 1]) add(null, sph(0.011), eyeM, s * 0.034, 0.124, -0.09, 0, 0, 0, 1, 1, 1, head);
     if (this.o.helmet !== 'none') {
-      const hel = new THREE.Mesh(new THREE.SphereGeometry(0.125, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), sm('helm' + this.o.helmet, () => lam(this.o.helmet === 'fast' ? 0x6f6448 : 0x5c5e45, { roughness: 0.85 })));
-      hel.position.y = 0.12; hel.castShadow = true; head.add(hel); this.helmetM = hel;
-      const nvg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.03), gearBlk); nvg.position.set(0, 0.2, -0.115); head.add(nvg);
+      const hm = sm('helm' + this.o.helmet, () => lam(this.o.helmet === 'fast' ? 0x6f6448 : 0x5c5e45, { roughness: 0.8 }));
+      const shell = G('hel', () => new THREE.SphereGeometry(0.128, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.5));
+      add(null, shell, hm, 0, 0.125, 0.005, 0, 0, 0, 1, 0.95, 1.06, head);
+      for (const s of [-1, 1]) add(null, rb(0.012, 0.03, 0.12, 0.005), polyM, s * 0.125, 0.13, 0.005, 0, 0, s * 0.15, 1, 1, 1, head); // side rails
+      add(null, rb(0.06, 0.035, 0.03, 0.01), polyM, 0, 0.215, -0.115, 0, 0, 0, 1, 1, 1, head);       // NVG shroud
+      add(null, rb(0.06, 0.05, 0.03, 0.01), gearBlk, 0, 0.19, 0.12, 0, 0, 0, 1, 1, 1, head);         // counterweight pouch
+      add(null, G('strap', () => new THREE.TorusGeometry(0.09, 0.006, 5, 16, Math.PI)), polyM, 0, 0.1, 0.0, 0, Math.PI / 2, Math.PI, 1, 1.1, 1, head); // chin strap
     } else {
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.106, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.45), uni); cap.position.y = 0.115; head.add(cap);
-      const brim = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.01, 0.08), uni); brim.position.set(0, 0.15, -0.1); head.add(brim);
+      add(null, G('capS', () => new THREE.SphereGeometry(0.106, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.42)), uni, 0, 0.118, 0, 0, 0, 0, 1, 1, 1, head);
+      add(null, rb(0.16, 0.01, 0.08, 0.004), uni, 0, 0.16, -0.1, -0.12, 0, 0, 1, 1, 1, head);
     }
-    const glasses = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.02), sm('specs', () => new THREE.MeshStandardMaterial({ color: 0x111, roughness: 0.1, metalness: 0.9 }))); glasses.position.set(0, 0.125, -0.098); head.add(glasses);
-    // arms
+    add(null, rb(0.15, 0.03, 0.02, 0.008), sm('specs', () => new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.08, metalness: 0.9 })), 0, 0.124, -0.1, 0, 0, 0, 1, 1, 1, head);
+    // ---- arms ----
     for (const s of ['L', 'R']) {
-      add('ua' + s, new THREE.CylinderGeometry(0.058, 0.05, LEN.upperArm, 8), uni, 0, LEN.upperArm / 2, 0);
-      if (team) add('ua' + s, new THREE.CylinderGeometry(0.061, 0.061, 0.04, 8), team, 0, 0.08, 0);
-      add('fa' + s, new THREE.CylinderGeometry(0.05, 0.042, LEN.foreArm, 8), uni, 0, LEN.foreArm / 2, 0);
-      add('fa' + s, new THREE.BoxGeometry(0.07, 0.1, 0.04), glove, 0, LEN.foreArm + 0.04, 0);
-      add('th' + s, new THREE.CylinderGeometry(0.085, 0.068, LEN.thigh, 8), uni, 0, LEN.thigh / 2, 0);
-      add('shin' + s, new THREE.CylinderGeometry(0.065, 0.05, LEN.shin, 8), uni, 0, LEN.shin / 2, 0);
-      add('shin' + s, new THREE.BoxGeometry(0.1, 0.12, 0.26), boot, 0, LEN.shin, -0.05);
-      add('shin' + s, new THREE.BoxGeometry(0.09, 0.1, 0.06), gearBlk, 0, 0.02, -0.04); // knee pad
+      add('ua' + s, cap(0.052, LEN.upperArm - 0.06), uni, 0, LEN.upperArm / 2, 0);
+      if (team) add('ua' + s, G('band', () => new THREE.CylinderGeometry(0.057, 0.057, 0.045, 12)), team, 0, 0.09, 0);
+      add('ua' + s, rb(0.03, 0.05, 0.05, 0.008), uni, s === 'L' ? -0.05 : 0.05, 0.14, 0);   // shoulder pocket
+      add('fa' + s, cap(0.045, LEN.foreArm - 0.06), uni, 0, LEN.foreArm / 2, 0);
+      add('fa' + s, rb(0.075, 0.1, 0.045, 0.018), glove, 0, LEN.foreArm + 0.035, 0);     // hand
+      add('fa' + s, rb(0.022, 0.05, 0.024, 0.01), glove, 0.035, LEN.foreArm + 0.02, -0.02, 0, 0, 0.5); // thumb
+      // ---- legs ----
+      add('th' + s, cap(0.078, LEN.thigh - 0.1), uni, 0, LEN.thigh / 2, 0);
+      add('th' + s, rb(0.05, 0.11, 0.09, 0.015), uni, s === 'L' ? -0.075 : 0.075, LEN.thigh * 0.55, -0.01); // cargo pocket
+      add('shin' + s, cap(0.06, LEN.shin - 0.08), uni, 0, LEN.shin / 2, 0);
+      add('shin' + s, rb(0.105, 0.11, 0.085, 0.03), gearBlk, 0, 0.02, -0.04);            // knee pad
+      add('shin' + s, rb(0.1, 0.13, 0.13, 0.035), boot, 0, LEN.shin - 0.01, -0.005);    // boot upper
+      add('shin' + s, rb(0.105, 0.06, 0.25, 0.025), boot, 0, LEN.shin + 0.045, -0.055); // foot
+      add('shin' + s, rb(0.11, 0.022, 0.27, 0.008), sole, 0, LEN.shin + 0.08, -0.055);  // sole
+    }
+    // a holstered pistol on the right thigh
+    add('thR', rb(0.05, 0.16, 0.09, 0.015), polyM, 0.095, 0.12, -0.01);
+    add('thR', rb(0.03, 0.05, 0.035, 0.008), polyM, 0.095, 0.0, 0.01);
+    this.skin();
+  }
+  // Rigid skinning: every segment group acts as a bone, and each material becomes ONE skinned mesh whose vertices
+  // follow their segment. A soldier is ~7 draw calls instead of ~30, and the animation / ragdoll code is unchanged
+  // (it still just places the segment groups). Wound decals and stumps are still added to the groups.
+  skin() {
+    const segs = Object.values(this.segMesh), by = new Map(), drop = [];
+    segs.forEach((grp, idx) => {
+      grp.updateMatrixWorld(true);
+      const inv = new THREE.Matrix4().copy(grp.matrixWorld).invert();
+      grp.traverse((o) => {
+        if (!o.isMesh) return;
+        const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+        for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+        if (!g.attributes.uv) return;
+        const n = g.attributes.position.count, si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+        for (let i = 0; i < n; i++) { si[i * 4] = idx; sw[i * 4] = 1; }
+        g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+        if (!by.has(o.material)) by.set(o.material, []);
+        by.get(o.material).push(g); drop.push(o);
+      });
+    });
+    for (const o of drop) o.removeFromParent();
+    for (const grp of segs) for (const c of [...grp.children]) if (!c.isMesh && !c.children.length) c.removeFromParent();
+    const skeleton = new THREE.Skeleton(segs, segs.map(() => new THREE.Matrix4()));
+    this.skinned = [];
+    for (const [m, list] of by) {
+      const mesh = new THREE.SkinnedMesh(mergeGeometries(list), m);
+      mesh.bind(skeleton, new THREE.Matrix4()); mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true;
+      this.root.add(mesh); this.skinned.push(mesh); for (const g of list) g.dispose();
     }
   }
+  // hides a segment (a destroyed head): its bone shrinks to nothing
+  hideSeg(name) { const g = this.segMesh[name]; if (g) { g.scale.setScalar(0.0001); g.userData.hidden = true; } }
   seg(name) {
     if (!this.segMesh[name]) { const g = new THREE.Group(); g.name = name; this.root.add(g); this.segMesh[name] = g; }
     return this.segMesh[name];
@@ -128,10 +215,13 @@ export class Soldier {
     const at = (x, y, z, out) => out.copy(st.pos).addScaledVector(right, x).addScaledVector(UP, y).addScaledVector(fwd, -z); // z: + backwards
     const ph = st.phase, sp = Math.min(1, st.speed / 4.5), stride = 0.32 * sp * (1 - crouch * 0.3), bob = Math.abs(Math.sin(ph)) * 0.035 * sp;
     if (prone > 0.5) return this.poseProne(st, fwd, right);
-    const pelY = 0.98 - crouch * 0.4 - bob;
-    at(0, pelY, 0, P[I.pelvis]);
+    // breathing at rest, hips swaying side to side as the weight moves foot to foot
+    const breath = Math.sin(performance.now() / 1000 * 1.7 + this.o.name.length) * 0.006 * (1 - sp);
+    const md = st.vel && st.speed > 0.3 ? new THREE.Vector3(st.vel.x, 0, st.vel.z).normalize() : fwd;
+    const pelY = 0.98 - crouch * 0.4 - bob + breath;
+    at(Math.sin(ph) * 0.025 * sp, pelY, 0, P[I.pelvis]);
     // the upper body leans forward when crouched, rolls with lean
-    const lean = st.lean * 0.3, tilt = 0.1 + crouch * 0.25;
+    const lean = st.lean * 0.3, tilt = 0.1 + crouch * 0.25 + (st.sprint ? 0.22 : sp * 0.06);
     const upv = _e.copy(UP).applyAxisAngle(right, -tilt).applyAxisAngle(fwd, -lean).normalize();
     const sideV = right.clone().applyAxisAngle(fwd, -lean);
     P[I.spine].copy(P[I.pelvis]).addScaledVector(upv, LEN.spine);
@@ -147,9 +237,9 @@ export class Soldier {
     const kneePole = fwd.clone().add(_a.set(0, 0.2, 0));
     for (const [s, off] of [['L', 0], ['R', Math.PI]]) {
       const hip = P[I['hip' + s]], c = Math.sin(ph + off), lift = Math.max(0, Math.cos(ph + off)) * 0.12 * sp;
-      const foot = _b.copy(st.pos).addScaledVector(right, s === 'L' ? -0.12 : 0.12).addScaledVector(fwd, c * stride + crouch * 0.1 * (s === 'L' ? 1.2 : -0.6));
+      // feet step along the way the body is actually moving (strafing, backing up), not just forwards
+      const foot = _b.copy(st.pos).addScaledVector(right, s === 'L' ? -0.12 : 0.12).addScaledVector(md, c * stride).addScaledVector(fwd, crouch * 0.1 * (s === 'L' ? 1.2 : -0.6));
       foot.y = st.pos.y + 0.06 + lift;
-      if (st.moveDir) foot.addScaledVector(st.moveDir, 0); // (placeholder for strafing)
       ik(hip, foot.clone(), LEN.thigh, LEN.shin, kneePole, P[I['kn' + s]], P[I['ft' + s]]);
     }
     this.armsAndGun(st, fwd, right, look, upv);
@@ -236,6 +326,7 @@ export class Soldier {
     if (z.lengthSq() < 1e-6) z.set(0, 0, 1); z.normalize();
     const x = _b.copy(up).cross(z).normalize();
     _m.makeBasis(x, up, z); obj.quaternion.setFromRotationMatrix(_m); obj.position.copy(pos);
+    if (obj.userData.hidden) obj.scale.setScalar(0.0001);
   }
   place(obj, a, b, ref) { if (!obj) return; const up = _a.copy(b).sub(a); if (up.lengthSq() < 1e-8) return; up.normalize(); this.basis(obj, a, up.clone(), ref); }
 
@@ -357,6 +448,7 @@ export class Soldier {
   joint(n) { return this.jp[I[n]]; }
   dispose() {
     this.group.removeFromParent();
+    for (const m of this.skinned || []) { m.geometry.dispose(); m.skeleton?.dispose?.(); }
     for (const s of this.props || []) s.o.removeFromParent();
     this.group.traverse((o) => { if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); } });
   }

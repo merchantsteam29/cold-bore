@@ -18,6 +18,7 @@ import { Input } from './input.js';
 import * as AU from './audio.js';
 import { makeGun, makeGrenade } from './guns.js';
 import { createGovernor } from '../perf.js';
+import { createPost } from './post.js';
 
 const VER = 3; // network protocol: players on other versions can't join
 const TEST = /[?&]test\b/.test(location.search);
@@ -43,7 +44,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.autoClear = false;
 let basePR = 1;
-const gov = createGovernor({ apply: (s) => renderer.setPixelRatio(basePR * s) });
+const gov = createGovernor({ apply: (s) => { renderer.setPixelRatio(basePR * s); pfx?.resize(); } });
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.04, 1600);
 // the FOV setting is horizontal (like most shooters); three.js wants vertical. zoom = optical magnification.
@@ -53,23 +54,24 @@ const hemi = new THREE.HemisphereLight(0xbcd3ea, 0x8a7458, 1.1); scene.add(hemi)
 const sun = new THREE.DirectionalLight(0xfff0d8, 3); sun.castShadow = true; scene.add(sun); scene.add(sun.target);
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
 const sc = sun.shadow.camera; sc.left = -78; sc.right = 78; sc.top = 78; sc.bottom = -78; sc.near = 1; sc.far = 420;
-const sky = new THREE.Mesh(new THREE.SphereGeometry(1200, 24, 16), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, depthWrite: false }));
-scene.add(sky);
-const sunDisc = new THREE.Sprite(new THREE.SpriteMaterial({ map: TX.puff('255,248,225'), color: 0xfff6dd, fog: false, depthWrite: false, transparent: true, toneMapped: false })); sunDisc.scale.setScalar(160); scene.add(sunDisc);
 const wlight = new THREE.SpotLight(0xfff4e0, 0, 45, 0.38, 0.45, 1.5); camera.add(wlight); camera.add(wlight.target); wlight.target.position.set(0, 0, -5); wlight.position.set(0.15, -0.1, 0);
 const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2010, toneMapped: false })); laserDot.visible = false; scene.add(laserDot);
 const VM = createViewmodel(innerWidth / innerHeight);
+const pfx = createPost(renderer, scene, camera, VM.scene, VM.cam);
 function applyQuality() {
   const q = set.quality;
-  basePR = q === 'low' ? Math.min(1, devicePixelRatio) * 0.75 : q === 'medium' ? Math.min(1, devicePixelRatio) : Math.min(1.5, devicePixelRatio);
+  basePR = q === 'low' ? Math.min(1, devicePixelRatio) * 0.75 : q === 'medium' ? Math.min(1, devicePixelRatio) : q === 'high' ? Math.min(1.5, devicePixelRatio) : Math.min(2, devicePixelRatio);
   renderer.setPixelRatio(basePR); gov.reset();
+  pfx.setQuality(q);
   const sz = q === 'low' ? 1024 : q === 'medium' ? 2048 : 4096;
+  sun.shadow.radius = q === 'ultra' ? 3 : 1.5;
   if (sun.shadow.mapSize.x !== sz) { sun.shadow.mapSize.set(sz, sz); sun.shadow.map?.dispose(); sun.shadow.map = null; }
   renderer.shadowMap.enabled = q !== 'low' || true;
   TX.setAniso(q === 'high' ? 8 : 4);
 }
-function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); VM.cam.aspect = camera.aspect; VM.cam.updateProjectionMatrix(); }
+function resize() { renderer.setSize(innerWidth, innerHeight, false); pfx.resize(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); VM.cam.aspect = camera.aspect; VM.cam.updateProjectionMatrix(); }
 addEventListener('resize', resize);
+if (TEST) set.quality = 'low'; // automated tests run in software-rendered Chrome; tools/look.mjs picks its own level
 applyQuality(); resize();
 
 const input = new Input(canvas);
@@ -123,7 +125,7 @@ function poseEnt(e, dt) {
   showGun(e);
   e.phase += dt * Math.max(0.0, e.speed) * (e.stance === 2 ? 3.2 : e.stance === 1 ? 2.6 : 2.25);
   const w = e.ws;
-  e.body.pose({ pos: e.pos, yaw: e.yaw, pitch: e.pitch, stance: e.stance, lean: e.lean, speed: e.speed, phase: e.phase, hold: holdOf(e), ads: e.ads, sprint: e.sprint,
+  e.body.pose({ pos: e.pos, yaw: e.yaw, pitch: e.pitch, stance: e.stance, lean: e.lean, speed: e.speed, phase: e.phase, vel: e.vel, hold: holdOf(e), ads: e.ads, sprint: e.sprint,
     reload: isMine(e) ? (w && w.reloadT >= 0 ? w.reloadT / w.reloadDur : 0) : e.rl || 0, kick: e.kick || 0, swing: isMine(e) ? (w && w.swingT >= 0 ? w.swingT : 0) : e.sw || 0, throwT: isMine(e) ? Math.max(0, w?.throwT || 0) : 0 });
   e.kick = (e.kick || 0) * Math.exp(-dt * 14);
   // footsteps you can hear (others only, and only close)
@@ -154,12 +156,11 @@ function buildMatch(cfg) {
   const W = G.W, s = W.sun;
   const d = V(...s.dir).normalize();
   sun.color.setHex(s.color); sun.intensity = s.int; sun.position.copy(d).multiplyScalar(200); sun.target.position.set(0, 0, 0);
-  hemi.color.setHex(s.hemi[0]); hemi.groundColor.setHex(s.hemi[1]); hemi.intensity = s.hemi[2];
+  hemi.color.setHex(s.hemi[0]); hemi.groundColor.setHex(s.hemi[1]); hemi.intensity = s.hemi[2] * 0.45; // the environment map does most of the ambient now
   VM.sun.color.setHex(s.color); VM.sun.intensity = s.int * 0.75; VM.sun.position.copy(d); VM.hemi.color.setHex(s.hemi[0]); VM.hemi.groundColor.setHex(s.hemi[1]);
   scene.fog = new THREE.Fog(W.fog[0], W.fog[1], W.fog[2]);
-  sky.material.map = TX.skyTex(...W.sky); sky.material.needsUpdate = true;
+  pfx.setSky(W.def); VM.scene.environment = scene.environment;
   scene.background = new THREE.Color(W.fog[0]);
-  sunDisc.position.copy(d).multiplyScalar(1000);
   G.flags = cfg.mode === 'dom' ? W.flags.map((f) => ({ ...f, owner: -1, p: 0 })) : [];
   buildFlagMarkers();
   G.scores = [0, 0]; G.timeLeft = MODES[cfg.mode].time; G.ended = false;
@@ -609,7 +610,7 @@ function ragdoll(v, m) {
     // the head is destroyed: what a heavy round does at close range
     const hp = b.headPos.clone().add(V(0, 0.1, 0)), dir = imp.clone().normalize();
     b.detach('head', imp.clone().multiplyScalar(0.3));
-    b.segMesh.head.visible = false; stump(b, 'neck');
+    b.hideSeg('head'); stump(b, 'neck');
     gore.gib(hp, dir, 14, 3); gore.spray(hp, dir.clone().add(V(0, 0.3, 0)), 70, 5, 0.6); gore.puff(hp, dir, 1.0, 0.9); gore.puff(hp, dir.clone().multiplyScalar(0.5), 0.7, 1.2);
     const wh = raycast(G.W, hp, dir, 4); if (wh && !wh.ground) gore.splat(wh.point, 0.9, wh.normal);
     G.bleeders.push({ b, j: 'neck', t: 4 });
@@ -744,7 +745,7 @@ function onBoom(m) {
 function dirOf(e) { return V(0, 0, -1).applyEuler(new THREE.Euler(e.pitch, e.yaw, 0, 'YXZ')); }
 
 // ================= THE LOCAL PLAYER =================
-const P = { recoilP: 0, recoilY: 0, recov: 0, recovY: 0, breath: 1, holdB: false, stamina: 1, fat: 0, adsOn: false, light: false, throwSel: 'frag', lastDy: 0, stepN: 0, wasGround: true, vyMax: 0, cook: false, shake: 0, flinch: 0, swayT: 0 };
+const P = { punch: 0, punchV: 0, punchR: 0, land: 0, landY: 0, landKick: 0, recoilP: 0, recoilY: 0, recov: 0, recovY: 0, breath: 1, holdB: false, stamina: 1, fat: 0, adsOn: false, light: false, throwSel: 'frag', lastDy: 0, stepN: 0, wasGround: true, vyMax: 0, cook: false, shake: 0, flinch: 0, swayT: 0 };
 const EYE = [1.65, 1.08, 0.36], HEIGHT = [1.8, 1.2, 0.55];
 function weightMul(e) {
   const g = GUNS[WP.curGun(e)]?.kg || 1, a = ARMOR[e.armor.type]?.kg || 0;
@@ -797,7 +798,7 @@ function updateMe(dt) {
   const vyBefore = me.vel.y;
   const r = moveBody(W, me.pos, me.vel, dt, 0.28, HEIGHT[me.stance], me.stance === 2 ? 0.25 : 0.45);
   if (r.onGround && !P.wasGround && vyBefore < -8.5) { const dmg = (Math.abs(vyBefore) - 8.5) * 16; applyHit(me, { by: me.id, w: 'fall', frag: true, dmg, part: Math.random() < 0.5 ? 'legL' : 'legR', pt: vArr(me.pos), dir: [0, -1, 0] }); }
-  if (r.onGround && !P.wasGround && vyBefore < -3) AU.step(me.pos.y > 0.2 ? 'concrete' : 'sand', 0.4);
+  if (r.onGround && !P.wasGround && vyBefore < -3) { AU.step(me.pos.y > 0.2 ? 'concrete' : 'sand', 0.4); P.land = Math.min(1.5, -vyBefore / 6); P.landKick = P.land * 0.6; }
   P.wasGround = r.onGround;
   me.speed = Math.hypot(me.vel.x, me.vel.z);
   me.phase += dt * me.speed * (me.stance === 2 ? 3.2 : me.stance === 1 ? 2.6 : 2.25);
@@ -883,7 +884,7 @@ function fireMe() {
   const rec = s.recoil * s.recoilMul * (me.ads ? 0.85 : 1) * (me.stance === 2 ? 0.6 : me.stance === 1 ? 0.82 : 1) * bip * (me.armHurt ? 1.3 : 1);
   P.recoilP += rec * 0.011 * (0.85 + Math.random() * 0.3);
   P.recoilY += rec * 0.006 * (Math.random() - 0.5) * 2;
-  P.kick = 1; P.shake = Math.max(P.shake, rec * 0.12);
+  P.kick = 1; P.shake = Math.max(P.shake, rec * 0.12); P.punchV = (P.punchV || 0) + rec * 0.35; P.punchR = (Math.random() - 0.5) * rec * 0.2;
   me.kick = 1;
   // muzzle flash, sound, brass
   const mw = camera.localToWorld(VM.muzzlePos());
@@ -1131,7 +1132,7 @@ function updateHUD() {
   if (hudCache.pr !== pr) { hudCache.pr = pr; $('prompt').innerHTML = pr; $('prompt').hidden = !pr; }
   // the edges go red as you lose blood
   const lowHp = me.alive ? clamp((60 - me.hp) / 60, 0, 1) : 0;
-  $('bloodV').style.opacity = Math.max(G.blood || 0, lowHp * 0.7).toFixed(2);
+  $('bloodV').style.opacity = set.quality === 'low' ? Math.max(G.blood || 0, lowHp * 0.7).toFixed(2) : 0;
   $('flashW').style.opacity = clamp(G.flash || 0, 0, 1).toFixed(2);
   setText('msg', G.cfg.mode === 'dom' && me.alive ? domMsg() : '');
 }
@@ -1378,8 +1379,11 @@ function placeCamera(dt) {
     const A = (me.ads ? 0.0016 : 0.004) * (zoom >= 4 ? 1.5 : 1) * (me.armHurt ? 2 : 1) * (me.stance === 2 ? 0.35 : me.stance === 1 ? 0.7 : 1) * (w?.stats?.bipod && me.stance ? 0.3 : 1) * (holding ? 0.12 : 1) * (1 + P.fat * 1.5 + (G.suppress || 0) * 2) * (P.breath <= 0 ? 2.2 : 1);
     const sx = (Math.sin(P.swayT * 0.9) + Math.sin(P.swayT * 1.7) * 0.5) * A, sy = Math.sin(P.swayT * 1.3) * A * 0.8;
     P.flinch *= Math.exp(-dt * 6); P.shake *= Math.exp(-dt * 12);
+    // a short punch per shot on top of the real recoil (visual only: it springs back), and a dip on landing
+    for (let i = 0, n = Math.ceil(dt / 0.004), h = dt / n; i < n; i++) { P.punchV = (P.punchV || 0) + (-300 * (P.punch || 0) - 26 * P.punchV) * h; P.punch = (P.punch || 0) + P.punchV * h; }
+    P.landY = (P.landY || 0) * Math.exp(-dt * 7) + (P.land || 0) * 0.08; P.land = 0; camera.position.y -= P.landY;
     const sh = (P.shake + (G.shake || 0) * 0.04) * 0.5;
-    camera.rotation.set(me.pitch + sy + P.flinch * 0.03 + (Math.random() - 0.5) * sh * 0.02, me.yaw + sx + (Math.random() - 0.5) * sh * 0.02, -me.lean * 0.17);
+    camera.rotation.set(me.pitch + sy + P.flinch * 0.03 + (P.punch || 0) * 0.012 + (Math.random() - 0.5) * sh * 0.02, me.yaw + sx + (Math.random() - 0.5) * sh * 0.02, -me.lean * 0.17 + (P.punch || 0) * (P.punchR || 0) * 0.02);
     // field of view: optics magnify
     const targetFov = scoped && zoom >= 4 ? vfov(zoom) : vfov(1 + VM.ads * (VM.info?.optic ? 0.25 : 0.12));
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * (scoped && zoom >= 4 ? 30 : 12));
@@ -1387,7 +1391,9 @@ function placeCamera(dt) {
     // the viewmodel
     const gk = me.gk;
     if (P.vmKey !== gk) { P.vmKey = gk; if (gk.startsWith('m:')) VM.setMelee(gk.slice(2)); else if (gk.startsWith('n:')) VM.setNade(gk.slice(2)); else if (gk) { const [id, att, fin] = gk.split('|'); VM.setGun(id, att ? att.split(',').filter(Boolean) : [], fin); } else VM.setEmpty(); }
-    VM.update(dt, { ads: me.ads ? 1 : 0, adsTime: w?.stats?.adsTime, dx: input.dx, dy: input.dy, speed: me.speed, phase: me.phase, kick: P.kick || 0, reload: w && w.reloadT >= 0 ? w.reloadT / w.reloadDur : -1, reloadKind: w?.stats?.shell ? 'shell' : 'mag', cycle: w && w.cycleT >= 0 ? w.cycleT / w.cycleDur : -1, cycleKind: w?.cycleKind, sprint: me.sprint, swing: w && w.swingT >= 0 ? w.swingT : -1, throwT: w?.throwT >= 0 ? w.throwT : w?.nade ? 0.3 : 0, heal: w && w.healT >= 0 ? w.healT / UTIL[w.healItem].time : -1, switching: w && w.switchT > 0 ? w.switchT / (w.switchDur || 0.4) : 0, lean: me.lean });
+    VM.update(dt, { ads: me.ads ? 1 : 0, adsTime: w?.stats?.adsTime, dx: input.dx, dy: input.dy, speed: me.speed, phase: me.phase, kick: P.kick || 0, reload: w && w.reloadT >= 0 ? w.reloadT / w.reloadDur : -1, reloadKind: w?.stats?.shell ? 'shell' : 'mag', cycle: w && w.cycleT >= 0 ? w.cycleT / w.cycleDur : -1, cycleKind: w?.cycleKind, sprint: me.sprint, swing: w && w.swingT >= 0 ? w.swingT : -1, throwT: w?.throwT >= 0 ? w.throwT : w?.nade ? 0.3 : 0, heal: w && w.healT >= 0 ? w.healT / UTIL[w.healItem].time : -1, switching: w && w.switchT > 0 ? w.switchT / (w.switchDur || 0.4) : 0, lean: me.lean,
+      strafe: clamp((me.vel.x * Math.cos(me.yaw) - me.vel.z * Math.sin(me.yaw)) / 5, -1, 1), land: P.landKick || 0 });
+    P.landKick = 0;
     P.kick = 0;
     // scope overlay
     const showScope = scoped && zoom >= 4 && VM.ads > 0.95;
@@ -1412,7 +1418,7 @@ function placeCamera(dt) {
   }
   AU.setListener(camera.position, V(0, 0, -1).applyQuaternion(camera.quaternion));
   // the sky follows the camera
-  sky.position.copy(camera.position); sunDisc.position.copy(camera.position).add(V(...G.W.sun.dir).normalize().multiplyScalar(1000));
+  pfx.follow(camera.position, performance.now() / 1000);
   // shadows cover the area around you
   const sd = V(...G.W.sun.dir).normalize();
   const c = camera.position.clone().setY(0); c.x = Math.round(c.x / 4) * 4; c.z = Math.round(c.z / 4) * 4;
@@ -1424,9 +1430,10 @@ function drawScope(info) {
   g.drawImage(img, 0, 0, 512, 512);
 }
 function draw() {
-  renderer.clear();
-  renderer.render(scene, camera);
-  if (G.state !== 'menu' && G.me?.alive) { renderer.clearDepth(); VM.cam.fov = 58; VM.cam.updateProjectionMatrix(); renderer.render(VM.scene, VM.cam); }
+  const showVM = G.state !== 'menu' && !!G.me?.alive && VM.holder.visible;
+  if (showVM) { VM.cam.fov = 58; VM.cam.updateProjectionMatrix(); }
+  const lowHp = G.me?.alive ? clamp((60 - G.me.hp) / 60, 0, 1) : 0;
+  pfx.render(showVM, { hurt: G.state === 'menu' ? 0 : Math.max(G.blood || 0, lowHp * 0.7), suppress: G.state === 'menu' ? 0 : clamp(G.suppress || 0, 0, 1), flash: 0 }, performance.now() / 1000);
 }
 let menuT = 0;
 function menuTick(dt) {
@@ -1443,7 +1450,7 @@ function menuTick(dt) {
     p.y = groundAt(G.W, p.x, p.z, 2);
     menuSoldier.pose({ pos: p, yaw: Math.atan2(-(camera.position.x - p.x), -(camera.position.z - p.z)) + 0.5, pitch: -0.25, stance: 0, lean: 0, speed: 0, phase: 0, hold: 'gun', ads: false });
   }
-  sky.position.copy(camera.position); sunDisc.position.copy(camera.position).add(V(...G.W.sun.dir).normalize().multiplyScalar(1000));
+  pfx.follow(camera.position, performance.now() / 1000);
   const sd = V(...G.W.sun.dir).normalize(); sun.target.position.set(f.x, 0, f.z); sun.position.set(f.x, 0, f.z).addScaledVector(sd, 200);
 }
 // the host keeps simulating when its tab is in the background
