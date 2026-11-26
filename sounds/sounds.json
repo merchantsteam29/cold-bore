@@ -1,1 +1,62 @@
-{}
+{
+  "pistol": [
+    "pistol.wav"
+  ],
+  "pistol_far": [
+    "pistol_far.wav"
+  ],
+  "pistol45": [
+    "pistol45.wav"
+  ],
+  "pistol45_far": [
+    "pistol45_far.wav"
+  ],
+  "magnum": [
+    "magnum.wav"
+  ],
+  "magnum_far": [
+    "magnum_far.wav"
+  ],
+  "smg": [
+    "smg.wav"
+  ],
+  "smg_far": [
+    "smg_far.wav"
+  ],
+  "rifle": [
+    "rifle.wav"
+  ],
+  "rifle_far": [
+    "rifle_far.wav"
+  ],
+  "ak": [
+    "ak_1.wav",
+    "ak_2.wav"
+  ],
+  "ak_far": [
+    "ak_far.wav"
+  ],
+  "battle": [
+    "battle.wav"
+  ],
+  "battle_far": [
+    "battle_far.wav"
+  ],
+  "sniper": [
+    "sniper_1.wav",
+    "sniper_2.wav"
+  ],
+  "sniper_far": [
+    "sniper_far_1.wav",
+    "sniper_far_2.wav"
+  ],
+  "shotgun": [
+    "shotgun_1.wav",
+    "shotgun_2.wav",
+    "shotgun_3.wav"
+  ],
+  "shotgun_far": [
+    "shotgun_far_1.wav",
+    "shotgun_far_2.wav"
+  ]
+}

@@ -62,7 +62,7 @@ const CALS = {
 // Real recordings in sounds/, listed in sounds/sounds.json as { "rifle": ["rifle1.ogg", ...], ... }. Anything
 // listed is used instead of the synthesized version; anything missing falls back to the synth, so the game
 // works with none, some or all of them. Keys (and what stands in when one is missing):
-const FALLBACK = { smg: 'pistol', magnum: 'pistol', ak: 'rifle', battle: 'rifle', sniper: 'battle', fifty: 'sniper', shotgun: 'battle',
+const FALLBACK = { pistol45: 'pistol', smg: 'pistol', magnum: 'pistol', ak: 'rifle', battle: 'rifle', sniper: 'battle', fifty: 'sniper', shotgun: 'battle',
   suppressed_rifle: 'suppressed_pistol', suppressed_pistol: null, mag_out: null, mag_in: null, bolt: null, pump: null, slide: null, shell_load: 'mag_in',
   explosion: null, casing: null, casing_shotgun: 'casing', dryfire: null, impact_flesh: null, impact_stone: null, impact_metal: null, impact_wood: 'impact_stone' };
 const BUF = {}; let samplesP = null;
@@ -78,7 +78,8 @@ export function loadSamples(base = 'sounds/') {
   })();
   return samplesP;
 }
-const pick = (k) => { while (k && !BUF[k]) k = FALLBACK[k]; return k ? BUF[k][(Math.random() * BUF[k].length) | 0] : null; };
+// far versions (recorded at a distance) stand in for themselves: 'rifle_far' -> 'rifle'
+const pick = (k) => { while (k && !BUF[k]) k = k.endsWith('_far') ? k.slice(0, -4) : FALLBACK[k]; return k ? BUF[k][(Math.random() * BUF[k].length) | 0] : null; };
 export const hasSample = (k) => !!pick(k);
 // plays one, placed in the world like the synth sounds; rate varies the pitch slightly so repeats don't sound copied
 function sample(k, pos = null, vol = 1, t = null, rate = 1, wet = 0.3) {
@@ -87,15 +88,17 @@ function sample(k, pos = null, vol = 1, t = null, rate = 1, wet = 0.3) {
   const g = out(pos, wet, pos ? 6 : 2, pos ? 0.7 : 1); g.gain.value = vol; s.connect(g); s.start(t ?? now());
   return true;
 }
-const CAL_KEY = { '9mm': 'pistol', '.45': 'pistol', '5.7': 'smg', '.50AE': 'magnum', '.500': 'magnum', '5.56': 'rifle', '5.45': 'rifle', '7.62x39': 'ak', '7.62x51': 'battle', '6.8x51': 'battle', '.338': 'sniper', '.50BMG': 'fifty', '12ga': 'shotgun' };
+const CAL_KEY = { '9mm': 'pistol', '.45': 'pistol45', '5.7': 'smg', '.50AE': 'magnum', '.500': 'magnum', '5.56': 'rifle', '5.45': 'rifle', '7.62x39': 'ak', '7.62x51': 'battle', '6.8x51': 'battle', '.338': 'sniper', '.50BMG': 'fifty', '12ga': 'shotgun' };
 
 export function gunshot(cal, pos = null, suppressed = false, mine = false) {
   if (!ctx) return; const C = CALS[cal] || CALS['5.56'];
   const t = now() + delayOf(pos), vol = C[2] * (mine ? 0.9 : 1.6);
   const key = suppressed ? (C[1] > 100 && cal !== '9mm' && cal !== '.45' ? 'suppressed_rifle' : 'suppressed_pistol') : CAL_KEY[cal] || 'rifle';
   // a recording if there is one; calibres that borrow another's recording are pitched to suit
-  const borrowed = !BUF[key], rate = borrowed ? ({ ak: 0.92, battle: 0.85, sniper: 0.78, fifty: 0.65, magnum: 0.85, smg: 1.1, shotgun: 0.8 }[key] || 1) : 1;
-  if (sample(key, pos, Math.min(1.4, vol * 0.8), t, rate, 0.35)) {
+  const borrowed = !BUF[key], rate = borrowed ? ({ ak: 0.92, battle: 0.85, sniper: 0.78, fifty: 0.65, magnum: 0.85, smg: 1.1, shotgun: 0.8 }[key] || 1) : key === 'magnum' ? 0.86 : 1;
+  // past ~40 m, the take recorded from further away (its own echo and lost highs)
+  const far = pos && distTo(pos) > 40 && !suppressed ? key + '_far' : key;
+  if (sample(far, pos, Math.min(1.4, vol * 0.8), t, rate, far === key ? 0.35 : 0.15)) {
     if (!suppressed && C[4] > 0.9) { const e = noise(), lp = filt('lowpass', 700), eg = out(pos, 0.3, 6, 0.6); e.connect(lp).connect(eg); const d = 0.08; eg.gain.setValueAtTime(0.0001, t); eg.gain.exponentialRampToValueAtTime(vol * 0.12 * C[4], t + d); eg.gain.exponentialRampToValueAtTime(0.0001, t + d + C[4]); e.start(t, Math.random()); e.stop(t + d + C[4] + 0.1); }
     return;
   }
