@@ -164,6 +164,7 @@ h3 { font: 600 17px var(--f-big); letter-spacing: .12em; margin: 18px 0 8px; tex
 #pause { position: fixed; z-index: 36; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); }
 #pause .panel { padding: 24px 30px; width: 340px; display: flex; flex-direction: column; gap: 6px; }
 #pause .code { font: 500 14px var(--f-mono); color: var(--dim); margin-bottom: 8px; }
+#perf { position: fixed; z-index: 75; left: 8px; bottom: 4px; font: 500 12px var(--f-mono); color: #cfe8a0; background: rgba(0,0,0,.6); padding: 2px 8px; pointer-events: none; max-width: 98vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #toast { position: fixed; z-index: 70; left: 50%; bottom: 30px; transform: translateX(-50%); padding: 10px 18px; font-size: 14px; }
 #warn { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; background: #050505; }
 #warn .panel { width: min(560px, 92vw); padding: 28px 32px; line-height: 1.55; font-size: 15px; }
@@ -295,6 +296,7 @@ h3 { font: 600 17px var(--f-big); letter-spacing: .12em; margin: 18px 0 8px; tex
     <label>Crosshair</label><select id="sCross"><option value="0">Off (realistic)</option><option value="1">Small dot</option></select>
     <label>Hit markers</label><select id="sHitm"><option value="1">On</option><option value="0">Off</option></select>
     <label>Invert look</label><select id="sInv"><option value="0">Off</option><option value="1">On</option></select>
+    <label>Show FPS (F3)</label><select id="sPerf"><option value="0">Off</option><option value="1">On</option></select>
     <label>Controllers</label><select id="sPads"><option value="1">On</option><option value="0">Off</option></select>
   </div>
   <h3>Controls</h3>

@@ -77,7 +77,11 @@ export function createPost(renderer, scene, camera, vmScene, vmCam) {
   };
   // the sky and clouds have to sit inside the camera's far distance
   P.setFar = (far) => { sky.scale.setScalar(Math.min(1000, far * 1.1)); clouds.userData.h = Math.min(420, far * 0.45); clouds.scale.setScalar(Math.min(1, far / 1600)); };
-  P.follow = (pos, t) => { sky.position.copy(pos); clouds.position.x = pos.x + t * 2; clouds.position.z = pos.z + t * 0.7; clouds.position.y = clouds.userData.h ?? 420; };
+  // Low: a plain gradient dome instead of the scattering shader (that one is costly on every sky pixel), no clouds
+  const cheapSky = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, depthWrite: false }));
+  cheapSky.visible = false; cheapSky.renderOrder = -2; scene.add(cheapSky);
+  P.setCheap = (on, def) => { P.cheap = on; sky.visible = !on; clouds.visible = !on; cheapSky.visible = on; if (def) { cheapSky.material.map = gradientTex(def.sky); cheapSky.material.needsUpdate = true; } };
+  P.follow = (pos, t) => { cheapSky.position.copy(pos); cheapSky.scale.setScalar(sky.scale.x * 0.45); sky.position.copy(pos); clouds.position.x = pos.x + t * 2; clouds.position.z = pos.z + t * 0.7; clouds.position.y = clouds.userData.h ?? 420; };
 
   // ---- post-processing ----
   function build() {

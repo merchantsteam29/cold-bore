@@ -33,7 +33,7 @@ const load = (k, d) => { try { return { ...d, ...JSON.parse(localStorage.getItem
 const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
 // earned and spent only ever go up, so two devices merge by taking the larger of each (sync.js 'max')
 const prog = load(PKEY, { name: '', earned: 0, spent: 0, own: { fin: { black: true }, uni: { multicam: true } }, equip: { uni: 'multicam', fin: {} }, stats: { kills: 0, deaths: 0, hs: 0, matches: 0, wins: 0, best: 0, longest: 0, earnedMatches: 0 } });
-const set = load(SKEY, { sens: 1, ads: 0.8, fov: 90, vol: 0.8, gore: 80, quality: 'high', adsT: 'hold', cross: '0', hitm: '1', inv: '0', pads: '1', warned: false });
+const set = load(SKEY, { sens: 1, ads: 0.8, fov: 90, vol: 0.8, gore: 80, quality: 'high', adsT: 'hold', cross: '0', hitm: '1', inv: '0', pads: '1', perf: '0', warned: false });
 if (!prog.name) prog.name = 'Recruit-' + ((Math.random() * 9000 + 1000) | 0);
 const bank = () => Math.max(0, prog.earned - prog.spent);
 function persist() { store(PKEY, prog); store(SKEY, set); try { window.GameSync?.syncNow?.(); } catch { /* fine */ } }
@@ -50,7 +50,7 @@ renderer.debug.checkShaderErrors = TEST;
 renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.autoClear = false;
 let basePR = 1;
-const gov = createGovernor({ apply: (s) => { renderer.setPixelRatio(basePR * s); pfx?.resize(); } });
+const gov = createGovernor({ min: 0.5, apply: (s) => { renderer.setPixelRatio(basePR * s); pfx?.resize(); } });
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.04, 1600);
 // the FOV setting is horizontal (like most shooters); three.js wants vertical. zoom = optical magnification.
@@ -67,6 +67,27 @@ const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 5), new THREE
 const VM = createViewmodel(innerWidth / innerHeight);
 const pfx = createPost(renderer, scene, camera, VM.scene, VM.cam);
 let shadowEvery = 1, shadowN = 0;
+// Low: every PBR material is swapped for a Lambert one (far cheaper per pixel: no reflections, no roughness maths).
+// The swap is remembered both ways, so switching quality back restores the originals.
+const toLamb = new WeakMap(), toStd = new WeakMap();
+function lambertOf(m) {
+  if (!m || !m.isMeshStandardMaterial) return m;
+  let l = toLamb.get(m);
+  if (!l) {
+    l = new THREE.MeshLambertMaterial({ map: m.map, color: m.color, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, side: m.side, depthWrite: m.depthWrite, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity, polygonOffset: m.polygonOffset, polygonOffsetFactor: m.polygonOffsetFactor, flatShading: m.flatShading, vertexColors: m.vertexColors, fog: m.fog });
+    if (m.metalness > 0.5) l.color = m.color.clone().multiplyScalar(0.55); // bare metal without reflections reads too bright
+    toLamb.set(m, l); toStd.set(l, m);
+  }
+  return l;
+}
+function cheapen(root, on) {
+  root.traverse((o) => {
+    const m = o.material; if (!m || o.isSprite || o.isLine || o.isPoints) return;
+    const swap = (x) => on ? lambertOf(x) : (toStd.get(x) || x);
+    if (Array.isArray(m)) o.material = m.map(swap); else { const n = swap(m); if (n !== m) o.material = n; }
+  });
+}
+const isCheap = () => set.quality === 'low';
 function applyQuality() {
   const q = set.quality;
   basePR = q === 'low' ? Math.min(1, devicePixelRatio) * 0.75 : q === 'medium' ? Math.min(1, devicePixelRatio) : q === 'high' ? Math.min(1.5, devicePixelRatio) : Math.min(2, devicePixelRatio);
@@ -77,6 +98,9 @@ function applyQuality() {
   if (sun.shadow.mapSize.x !== sz) { sun.shadow.mapSize.set(sz, sz); sun.shadow.map?.dispose(); sun.shadow.map = null; }
   // Low: no shadows at all (the sky light still shades everything). Materials recompile when this changes.
   const sh = q !== 'low';
+  let W0 = null; try { W0 = G.W; } catch { /* called at boot, before the game state exists */ }
+  pfx.setCheap(q === 'low', W0?.def); cheapen(scene, q === 'low'); cheapen(VM.scene, q === 'low');
+  hemi.intensity = (W0?.sun.hemi[2] ?? 1.1) * (q === 'low' ? 1.0 : 0.45); // no environment light on Low: the hemisphere does it all
   if (renderer.shadowMap.enabled !== sh) { renderer.shadowMap.enabled = sh; scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; }); }
   shadowEvery = q === 'medium' ? 2 : 1;
   // how far you can see (the haze hides the cut)
@@ -176,10 +200,10 @@ function buildMatch(cfg) {
   const W = G.W, s = W.sun;
   const d = V(...s.dir).normalize();
   sun.color.setHex(s.color); sun.intensity = s.int; sun.position.copy(d).multiplyScalar(200); sun.target.position.set(0, 0, 0);
-  hemi.color.setHex(s.hemi[0]); hemi.groundColor.setHex(s.hemi[1]); hemi.intensity = s.hemi[2] * 0.45; // the environment map does most of the ambient now
+  hemi.color.setHex(s.hemi[0]); hemi.groundColor.setHex(s.hemi[1]); hemi.intensity = s.hemi[2] * (isCheap() ? 1.0 : 0.45); // the environment map does most of the ambient (except on Low)
   VM.sun.color.setHex(s.color); VM.sun.intensity = s.int * 0.75; VM.sun.position.copy(d); VM.hemi.color.setHex(s.hemi[0]); VM.hemi.groundColor.setHex(s.hemi[1]);
   scene.fog = new THREE.Fog(W.fog[0], W.fog[1], W.fog[2]);
-  pfx.setSky(W.def); VM.scene.environment = scene.environment;
+  pfx.setSky(W.def); VM.scene.environment = scene.environment; pfx.setCheap(isCheap(), W.def);
   scene.background = new THREE.Color(W.fog[0]);
   G.flags = cfg.mode === 'dom' ? W.flags.map((f) => ({ ...f, owner: -1, p: 0 })) : [];
   buildFlagMarkers();
@@ -200,6 +224,7 @@ function warmShaders() {
   gore.gib(V(0, -50, 0), V(0, 1, 0), 3); gore.splat(V(0, -50, 0), 0.3); gore.pool(V(0, -50, 0)); gore.spray(V(0, -50, 0), V(0, 1, 0), 3);
   fx.chunk(V(0, -50, 0), V(0, 1, 0), 3); fx.smoke(V(0, -60, 0), 0.1);
   // everything visible and un-culled for this one frame, so every shader is actually used once
+  if (isCheap()) { cheapen(scene, true); cheapen(VM.scene, true); }
   const hidden = [], culled = []; scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; } });
   try {
     renderer.compile(scene, camera); renderer.compile(VM.scene, VM.cam);
@@ -1279,6 +1304,7 @@ $('buyClose').onclick = closeBuy;
 
 // ================= MENUS =================
 function showTitle() {
+  if (SOFTWARE && !TEST) toast('Your browser is drawing the game WITHOUT your graphics card (hardware acceleration is off: ' + gpuName + '). Turn on "Use graphics acceleration" in the browser settings and restart it. It will be many times faster.', 15000);
   $('title').hidden = false; $('warn').hidden = !!set.warned ? true : $('warn').hidden;
   $('nameIn').value = prog.name;
   $('bankLine').textContent = 'Bank ' + fmt$(bank());
@@ -1337,14 +1363,14 @@ $('armItems').addEventListener('click', (e) => {
 });
 // ---- settings ----
 function fillSettings() {
-  const map = { sSens: 'sens', sAds: 'ads', sFov: 'fov', sVol: 'vol', sGore: 'gore', sQual: 'quality', sAdsT: 'adsT', sCross: 'cross', sHitm: 'hitm', sInv: 'inv', sPads: 'pads' };
+  const map = { sSens: 'sens', sAds: 'ads', sFov: 'fov', sVol: 'vol', sGore: 'gore', sQual: 'quality', sAdsT: 'adsT', sCross: 'cross', sHitm: 'hitm', sInv: 'inv', sPads: 'pads', sPerf: 'perf' };
   for (const [id, k] of Object.entries(map)) { $(id).value = set[k]; const v = $(id + 'V'); if (v) v.textContent = k === 'vol' ? Math.round(set[k] * 100) + '%' : set[k]; }
 }
-for (const [id, k] of Object.entries({ sSens: 'sens', sAds: 'ads', sFov: 'fov', sVol: 'vol', sGore: 'gore', sQual: 'quality', sAdsT: 'adsT', sCross: 'cross', sHitm: 'hitm', sInv: 'inv', sPads: 'pads' })) {
+for (const [id, k] of Object.entries({ sSens: 'sens', sAds: 'ads', sFov: 'fov', sVol: 'vol', sGore: 'gore', sQual: 'quality', sAdsT: 'adsT', sCross: 'cross', sHitm: 'hitm', sInv: 'inv', sPads: 'pads', sPerf: 'perf' })) {
   $(id).addEventListener('input', () => {
     const el = $(id); set[k] = el.type === 'range' ? +el.value : el.value;
     const v = $(id + 'V'); if (v) v.textContent = k === 'vol' ? Math.round(set[k] * 100) + '%' : set[k];
-    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
+    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'perf') perfEl.hidden = set.perf !== '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
     store(SKEY, set);
   });
 }
@@ -1389,13 +1415,30 @@ function menuScene() {
 
 // ================= MAIN LOOP =================
 let last = performance.now();
+// ---------- performance readout: F3 (or Settings) ----------
+const gpuName = (() => { try { const gl = renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch { return '?'; } })();
+const SOFTWARE = /swiftshader|llvmpipe|software|basic render|microsoft basic/i.test(gpuName);
+const perfEl = document.createElement('div'); perfEl.id = 'perf'; perfEl.hidden = set.perf !== '1'; document.body.appendChild(perfEl);
+const PF = { n: 0, acc: 0, worst: 0, t: 0, cpu: 0 };
+function perfTick(raw, cpuMs) {
+  PF.n++; PF.acc += raw; PF.worst = Math.max(PF.worst, raw); PF.cpu += cpuMs;
+  if (PF.acc < 0.5) return;
+  if (!perfEl.hidden) {
+    const i = renderer.info.render, sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+    perfEl.textContent = `${Math.round(PF.n / PF.acc)} fps · ${(PF.acc / PF.n * 1000).toFixed(1)} ms (worst ${(PF.worst * 1000).toFixed(0)}) · game ${(PF.cpu / PF.n).toFixed(1)} ms · ${i.calls} draws · ${(i.triangles / 1000).toFixed(0)}k tris · ${sz.x}×${sz.y} (${Math.round(gov.scale * 100)}%) · ${set.quality} · ${gpuName}`;
+  }
+  PF.n = PF.acc = PF.worst = PF.cpu = 0;
+}
+addEventListener('keydown', (e) => { if (e.code === 'F3') { e.preventDefault(); set.perf = set.perf === '1' ? '0' : '1'; perfEl.hidden = set.perf !== '1'; store(SKEY, set); } });
 function frame(t) {
   requestAnimationFrame(frame);
   const raw = Math.min(0.1, (t - last) / 1000); last = t;
   const dt = Math.min(raw, 1 / 20);
   gov.tick(raw);
   input.pollPad(dt);
+  const c0 = performance.now();
   step(dt, true);
+  perfTick(raw, performance.now() - c0);
   input.endFrame();
 }
 // the simulation; render = false when the tab is hidden (the host keeps the match running)
@@ -1508,6 +1551,7 @@ function drawScope(info) {
   g.drawImage(img, 0, 0, 512, 512);
 }
 function draw() {
+  if (isCheap()) { cheapen(scene, true); cheapen(VM.scene, true); }
   // the shadow map is redrawn every frame on High / Ultra, every other frame on Medium
   if (renderer.shadowMap.enabled && ++shadowN >= shadowEvery) { shadowN = 0; sun.shadow.needsUpdate = true; }
   const showVM = G.state !== 'menu' && !!G.me?.alive && VM.holder.visible;
