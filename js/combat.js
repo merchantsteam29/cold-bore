@@ -102,7 +102,7 @@ export function gunStats(id, att = []) {
   s.spare = G0.slot === 'sidearm' ? 3 : G0.cls === 'LMG' ? 1 : G0.shell ? Math.ceil(24 / G0.mag) : G0.mag <= 10 ? 4 : 3;
   return s;
 }
-export const ROUND_COST = { '9mm': 0.32, '.45': 0.5, '5.7': 0.65, '.50AE': 2.6, '.500': 3.2, '5.56': 0.48, '5.45': 0.45, '7.62x39': 0.42, '7.62x51': 1.15, '7.62x54R': 0.6, '6.8x51': 2.8, '.338': 5.2, '.50BMG': 4.6, '12ga': 0.95 };
+export const ROUND_COST = { '9mm': 0.32, '9x18': 0.4, '.45': 0.5, '5.7': 0.65, '.50AE': 2.6, '.500': 3.2, '5.56': 0.48, '5.45': 0.45, '7.62x39': 0.42, '7.62x51': 1.15, '7.62x54R': 0.6, '6.8x51': 2.8, '.338': 5.2, '.50BMG': 4.6, '12ga': 0.95 };
 export function ammoPrice(id) { const g = GUNS[id]; return g ? Math.ceil(g.mag * (g.shell ? 4 : 2) * (ROUND_COST[g.cal] || 0.5)) : 0; }
 
 // frag grenade: lethal inside ~5 m, wounding to 15, blocked by walls

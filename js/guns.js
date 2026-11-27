@@ -13,7 +13,17 @@ import { ready, parts, bounds } from './models.js';
 export const MODEL_GUNS = {
   p38: { id: 'service_pistol', pick: (n) => /_(pistol|slide|hammer|trigger)_a$/.test(n), fallback: 'pistol', pistol: true },
   mosin: { id: 'bolt_action_rifle_7_62', pick: (n) => !/bullet|bolt_b|scope/.test(n), fallback: 'bolt' },
+  // the CC0 "Guns & Explosives" pack (3dmodelscc0): barrel already down -Z, +Y up ('front' models)
+  ar: { id: 'ge_m4a1', front: true, only: ['m4'], fallback: 'ar', mag: 'Magazine' },
+  ak: { id: 'ge_ak47', front: true, only: ['ak47'], fallback: 'ak', mag: 'Magazine' },
+  pump: { id: 'ge_shotgun', front: true, only: ['r870'], fallback: 'pump', pump: 'Fore_Stock' },
+  gesniper: { id: 'ge_sniper', front: true, fallback: 'bolt', level: 'Barrel', drop: ['Magazine'], scope: 'Scope', zoom: 6 },
+  gemakarov: { id: 'ge_makarov', front: true, fallback: 'pistol', pistol: true, mag: 'Magazine' },
+  geluger: { id: 'ge_luger', front: true, fallback: 'pistol', pistol: true, mag: 'Clip' },
+  gegrease: { id: 'ge_grease', front: true, fallback: 'uzi', mag: 'Magazine' },
+  gesuomi: { id: 'ge_suomi', front: true, fallback: 'mp5', mag: 'Magazine' },
 };
+export const MODEL_GRENADES = { frag: 'ge_frag', flash: 'ge_flash', smoke: 'ge_smoke' };
 export const MODEL_MELEE = { machete: { id: 'machete', grip: 0.09 }, hatchet: { id: 'hatchet', grip: 0.06 } };
 export function resetGunCache() { gunCache.clear(); }
 // highest and lowest point of the geometry within a slice of X (model space)
@@ -70,8 +80,49 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
   const magAtt = has('mag');
   const mag = (obj) => { obj.name = 'mag'; info.mag = obj; info.magHome.copy(obj.position); return obj; };
 
-  const MG = MODEL_GUNS[G.model], useModel = MG && ready.has(MG.id) && (parts(MG.id, MG.pick) || []).length > 0;
-  switch (useModel ? 'model' : MG ? MG.fallback : G.model) {
+  const MG0 = MODEL_GUNS[G.model], MG = MG0 && (!MG0.only || MG0.only.includes(id)) ? MG0 : null;
+  const useModel = MG && ready.has(MG.id) && (parts(MG.id, MG.pick) || []).length > 0;
+  switch (useModel ? (MG.front ? 'front' : 'model') : MG0 && MG0.fallback && MODEL_GUNS[G.model] && !['ar', 'ak', 'pump'].includes(G.model) ? MG0.fallback : G.model) {
+    case 'front': {
+      // muzzle -Z, +Y up already. Level it if the model is pitched, then put the grip (behind the trigger) at the origin.
+      let P = parts(MG.id, (n) => !(MG.drop || []).includes(n) && (MG.scope ? true : !/scope/i.test(n)));
+      if (MG.level) {
+        const bar = P.find((p) => p.name === MG.level);
+        if (bar) { const a = bar.geometry.attributes.position; let lo = null, hi = null; for (let i = 0; i < a.count; i++) { const z = a.getZ(i); if (!lo || z < lo[1]) lo = [a.getY(i), z]; if (!hi || z > hi[1]) hi = [a.getY(i), z]; } const ang = Math.atan2(lo[0] - hi[0], hi[1] - lo[1]); const R = new THREE.Matrix4().makeRotationX(-ang); for (const p of P) p.geometry.applyMatrix4(R); }
+      }
+      const b = bounds(P), L = b.max.z - b.min.z;
+      const sliceZ = (z0, z1, parts0 = P) => { let lo = Infinity, hi = -Infinity; for (const p of parts0) { const a = p.geometry.attributes.position; for (let i = 0; i < a.count; i++) { const z = a.getZ(i); if (z >= z0 && z <= z1) { const y = a.getY(i); if (y < lo) lo = y; if (y > hi) hi = y; } } } return [lo, hi]; };
+      const noMag = P.filter((p) => p.name !== MG.mag && p.name !== MG.scope && p.name !== MG.pump);
+      const trig = P.find((p) => /trigger/i.test(p.name)), tb = trig ? bounds([trig]) : null;
+      const tz = tb ? (tb.min.z + tb.max.z) / 2 : b.min.z + L * (MG.pistol ? 0.7 : 0.62);
+      const [mLo, mHi] = sliceZ(b.min.z, b.min.z + Math.min(0.04, L * 0.06), noMag), bore = (mLo + mHi) / 2;
+      const top = sliceZ(b.min.z, b.max.z, noMag)[1];
+      const grip = MG.pistol ? new THREE.Vector3(0, top - 0.07, tz + 0.03) : new THREE.Vector3(0, bore - 0.065, tz + 0.045);
+      for (const p of P) p.geometry.translate(-grip.x, -grip.y, -grip.z);
+      const at = (y, z) => new THREE.Vector3(0, y - grip.y, z - grip.z);
+      for (const p of P) {
+        const m = new THREE.Mesh(p.geometry, p.material); m.castShadow = true; root.add(m);
+        if (p.name === MG.mag) { m.name = 'mag'; info.mag = m; info.magHome.set(0, 0, 0); }
+        if (p.name === MG.pump) { m.name = 'pump'; info.pump = m; info.pumpHome = new THREE.Vector3(); }
+      }
+      info.muzzle.copy(at(bore, b.min.z));
+      const [, fHi] = sliceZ(b.min.z, b.min.z + L * 0.15, noMag);                  // the front sight
+      const [, rHi] = sliceZ(tz - 0.16, tz + 0.02, noMag);                          // the receiver over the trigger
+      if (MG.pistol) {
+        info.sightY = top - grip.y + 0.003; info.sightZ = 0.03; info.rail = null; info.left.set(-0.012, -0.02, 0); info.len = L;
+        info.eject.copy(at(top - 0.01, tz - 0.05)).setX(0.015);
+      } else {
+        info.sightY = Math.max(fHi, rHi) - grip.y + 0.004; info.sightZ = 0.06;
+        info.rail = at(rHi, tz - 0.06);
+        info.left.copy(at(bore - 0.045, tz - Math.min(0.32, L * 0.36)));
+        if (info.pump) { const pb = bounds([P.find((p) => p.name === MG.pump)]); info.left.copy(at((pb.min.y + pb.max.y) / 2, (pb.min.z + pb.max.z) / 2)); }
+        info.eject.copy(at(bore + 0.01, tz - 0.04)).setX(0.03);
+        info.under = at(sliceZ(tz - 0.4, tz - 0.25, noMag)[0], tz - 0.33); info.side = at(bore, tz - 0.25).setX(0.035); info.len = L;
+        if (MG.scope) { const sp = P.find((p) => p.name === MG.scope); if (sp) { const sb = bounds([sp]); info.sightY = (sb.min.y + sb.max.y) / 2 - grip.y; info.zoom = MG.zoom; info.scope = true; info.optic = 'builtin'; info.sightZ = sb.max.z - grip.z + 0.02; info.rail = null; } }
+      }
+      info.model = true;
+      break;
+    }
     case 'model': {
       // a real model: turned so the barrel points -Z, moved so the grip is at the origin
       const P = parts(MG.id, MG.pick), b = bounds(P), Y = new THREE.Vector3(0, 1, 0), L = b.max.x - b.min.x;
@@ -247,7 +298,7 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
   }
 
   // ---------- the small parts that make it read as a real gun ----------
-  const D = dark(), fam = G.model, longGun = !info.pistol && fam !== 'revolver';
+  const D = dark(), fam = info.model ? 'none' : G.model, longGun = !info.pistol && fam !== 'revolver';
   const teeth = (y, z0, len, w = 0.05) => { for (let z = z0; z > z0 - len; z -= 0.0105) box(w * 0.98, 0.004, 0.0052, 0, y, z, K); };
   const tor = (r, t, x, y, z, m, rotY = Math.PI / 2) => { const o = new THREE.Mesh(new THREE.TorusGeometry(r, t, 6, 18), m); o.position.set(x, y, z); o.rotation.y = rotY; root.add(o); return o; };
   // trigger and guard
@@ -266,7 +317,7 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
     for (let i = 0; i < 5; i++) box(0.03, 0.002, 0.008, 0, 0.105, 0.06 - i * 0.03, S);       // dust cover ribs
     box(0.03, 0.006, 0.05, 0, -0.03, -0.1, K, 0.32);                                         // mag catch / ribs
     box(0.002, 0.014, 0.04, 0.026, 0.075, -0.03, D);                                          // ejection port
-  } else if (info.pistol && fam !== 'revolver') {
+  } else if (info.pistol && fam !== 'revolver' && fam !== 'none') {
     const L = (G.long || 1) * (fam === 'deagle' ? 1.35 : 1);
     for (let i = 0; i < 6; i++) for (const sx of [-1, 1]) box(0.002, 0.026, 0.003, sx * 0.0155, 0.052, 0.018 - i * 0.006, D); // slide serrations
     box(0.002, 0.012, 0.03, 0.0155, 0.058, -0.06 * L, D);                                     // ejection port
@@ -358,6 +409,8 @@ export function makeMelee(id) {
   return g;
 }
 export function makeGrenade(kind) {
+  const gid = MODEL_GRENADES[kind];
+  if (gid && ready.has(gid)) { const P = parts(gid), b = bounds(P), g = new THREE.Group(), c = b.getCenter(new THREE.Vector3()); for (const p of P) { const m = new THREE.Mesh(p.geometry, p.material); m.position.copy(c).negate(); m.castShadow = true; g.add(m); } return g; }
   const g = new THREE.Group();
   const col = kind === 'frag' ? 0x3d4a2f : kind === 'smoke' ? 0x50584a : 0x4b4f52;
   const body = new THREE.Mesh(kind === 'frag' ? new THREE.SphereGeometry(0.032, 12, 10) : new THREE.CylinderGeometry(0.03, 0.03, 0.11, 12), new THREE.MeshStandardMaterial({ color: col, roughness: 0.7, metalness: 0.3 }));

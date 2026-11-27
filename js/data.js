@@ -8,6 +8,7 @@
 // `pen` is the armour it defeats (see ARMOR), and damage falls off as the round slows down.
 
 export const CAL = {
+  '9x18':     { name: '9×18mm Makarov', dmg: 30, vel: 315, pen: 2, drop: 1.1, mist: 0.55 },
   '9mm':      { name: '9×19mm Parabellum', dmg: 34, vel: 370, pen: 2, drop: 1, mist: 0.6 },
   '.45':      { name: '.45 ACP', dmg: 42, vel: 260, pen: 2, drop: 1.5, mist: 0.7 },
   '5.7':      { name: '5.7×28mm', dmg: 28, vel: 715, pen: 3.2, drop: 0.7, mist: 0.5 },
@@ -30,6 +31,8 @@ export const GUNS = {
   // ---------- sidearms ----------
   glock17: { name: 'Glock 17 Gen5', slot: 'sidearm', cls: 'Pistol', price: 550, cal: '9mm', mag: 17, rpm: 420, modes: ['semi'], kg: 0.9, recoil: 0.9, reload: [1.6, 2.0], model: 'pistol', issued: true, att: ['optic_rmr', 'muz_9', 'las_pistol', 'mag_glock33'], desc: 'The issued sidearm. Light, reliable, 17 rounds.' },
   p38:     { name: 'Walther P1 (P38)', slot: 'sidearm', cls: 'Pistol', price: 650, cal: '9mm', mag: 8, rpm: 380, modes: ['semi'], kg: 0.8, recoil: 0.85, reload: [1.7, 2.1], model: 'p38', att: [], desc: 'German service pistol, 1938 to 2004. Double action, 8 rounds, a classic.' },
+  makarov: { name: 'Makarov PM', slot: 'sidearm', cls: 'Pistol', price: 450, cal: '9x18', mag: 8, rpm: 400, modes: ['semi'], kg: 0.73, recoil: 0.8, reload: [1.6, 2.0], model: 'gemakarov', att: [], desc: 'The Soviet service pistol. Small, simple, 9×18mm. Cheap Bulgarian surplus.' },
+  luger:   { name: 'Luger P08', slot: 'sidearm', cls: 'Pistol', price: 2800, cal: '9mm', mag: 8, rpm: 380, modes: ['semi'], kg: 0.87, recoil: 0.75, reload: [1.8, 2.2], model: 'geluger', att: [], desc: 'The toggle-lock classic from 1908. A collector piece at collector prices.' },
   m17:     { name: 'SIG Sauer M17 (P320)', slot: 'sidearm', cls: 'Pistol', price: 680, cal: '9mm', mag: 17, rpm: 420, modes: ['semi'], kg: 0.95, recoil: 0.85, reload: [1.6, 2.0], model: 'pistol', tint: 0x8a7558, att: ['optic_rmr', 'muz_9', 'las_pistol'], desc: 'US Army sidearm since 2017. Slightly flatter than the Glock.' },
   m9:      { name: 'Beretta M9A4', slot: 'sidearm', cls: 'Pistol', price: 850, cal: '9mm', mag: 18, rpm: 400, modes: ['semi'], kg: 1.0, recoil: 0.8, reload: [1.7, 2.1], model: 'pistol', tint: 0x2a2c2a, long: 1.1, att: ['optic_rmr', 'muz_9', 'las_pistol'], desc: 'Open-slide classic. Heavy, soft shooting.' },
   usp45:   { name: 'H&K USP Tactical .45', slot: 'sidearm', cls: 'Pistol', price: 1150, cal: '.45', mag: 12, rpm: 360, modes: ['semi'], kg: 1.05, recoil: 1.15, reload: [1.7, 2.1], model: 'pistol', long: 1.15, att: ['muz_45', 'las_pistol'], desc: 'Big, slow .45. Threaded barrel from the factory.' },
@@ -38,6 +41,8 @@ export const GUNS = {
 
   // ---------- submachine guns ----------
   mp5:     { name: 'H&K MP5A3 (SP5)', slot: 'primary', cls: 'SMG', price: 2900, cal: '9mm', mag: 30, rpm: 800, modes: ['auto', 'semi'], kg: 2.9, recoil: 0.55, reload: [2.3, 2.9], model: 'mp5', att: ['optic_dot', 'optic_holo', 'muz_9', 'grip_vert', 'las_light'], desc: 'Roller-delayed, accurate, soft. Close quarters king for 50 years.' },
+  m3:      { name: 'M3A1 Grease Gun', slot: 'primary', cls: 'SMG', price: 24000, cal: '.45', mag: 30, rpm: 450, modes: ['auto'], kg: 4.1, recoil: 0.55, reload: [2.5, 3.1], model: 'gegrease', att: [], desc: 'WWII and Korea. Slow, steady .45 fire. A registered transferable machine gun (NFA): that is what one really costs.' },
+  suomi:   { name: 'Suomi KP/-31', slot: 'primary', cls: 'SMG', price: 16000, cal: '9mm', mag: 71, rpm: 900, modes: ['auto'], kg: 7.0, recoil: 0.45, reload: [3.6, 4.4], model: 'gesuomi', att: [], desc: 'The Finnish Winter War SMG: a 71-round drum, very accurate, very heavy. Registered transferable (NFA) price.' },
   vector:  { name: 'KRISS Vector .45', slot: 'primary', cls: 'SMG', price: 1850, cal: '.45', mag: 25, rpm: 1100, modes: ['auto', 'semi'], kg: 2.9, recoil: 0.5, reload: [2.2, 2.7], model: 'vector', att: ['optic_dot', 'optic_holo', 'muz_45', 'las_light', 'mag_vector'], desc: 'Super V recoil system: very fast, very flat, eats magazines.' },
   apc9:    { name: 'B&T APC9 Pro', slot: 'primary', cls: 'SMG', price: 2450, cal: '9mm', mag: 30, rpm: 1080, modes: ['auto', 'semi'], kg: 2.6, recoil: 0.6, reload: [2.1, 2.6], model: 'apc', att: ['optic_dot', 'optic_holo', 'muz_9', 'grip_vert', 'grip_afg', 'las_light'], desc: 'Swiss SMG the US Army picked as its Sub Compact Weapon.' },
   uzi:     { name: 'IWI UZI Pro', slot: 'primary', cls: 'SMG', price: 1300, cal: '9mm', mag: 32, rpm: 600, modes: ['auto', 'semi'], kg: 2.0, recoil: 0.75, reload: [2.2, 2.7], model: 'uzi', att: ['optic_dot', 'muz_9', 'las_light'], desc: 'Cheap, compact and controllable at 600 rounds a minute.' },
@@ -54,6 +59,7 @@ export const GUNS = {
   // ---------- marksman / sniper ----------
   m1a:     { name: 'Springfield M1A (M14 EBR)', slot: 'primary', cls: 'Marksman', price: 2100, cal: '7.62x51', mag: 20, rpm: 500, modes: ['semi'], kg: 5.1, recoil: 1.5, reload: [2.8, 3.4], model: 'm14', tint: 0x2b2b2b, att: ['optic_acog', 'optic_lpvo', 'optic_sniper', 'muz_rifle', 'grip_bipod', 'las_peq'], desc: 'Semi-auto 7.62 with a 22-inch barrel. A designated marksman rifle.' },
   r700:    { name: 'Mosin–Nagant M91/30 PU', slot: 'primary', cls: 'Sniper', price: 900, cal: '7.62x54R', mag: 5, rpm: 40, modes: ['bolt'], kg: 4.1, recoil: 1.9, reload: [3.0, 3.6], model: 'mosin', tint: 0x3a3a30, att: ['muz_rifle', 'grip_bipod'], desc: 'The Soviet sniper rifle: a 91/30 with the 3.5× PU scope. 7.62×54R hits like a .30-06; deadly to the head at any range.' },
+  m700:    { name: 'Remington 700 SPS Tactical + 3-9× scope', slot: 'primary', cls: 'Sniper', price: 1100, cal: '7.62x51', mag: 5, rpm: 45, modes: ['bolt'], kg: 4.3, recoil: 1.8, reload: [3.0, 3.6], model: 'gesniper', att: ['muz_rifle', 'grip_bipod'], desc: 'The .308 bolt action every sniper starts on, with a hunting scope. Aim to look through it.' },
   axmc:    { name: 'Accuracy International AXMC .338', slot: 'primary', cls: 'Sniper', price: 7500, cal: '.338', mag: 10, rpm: 40, modes: ['bolt'], kg: 6.8, recoil: 2.4, reload: [3.2, 3.8], model: 'bolt', variant: 'ax', tint: 0x5c5b3d, att: ['optic_lpvo', 'optic_sniper', 'muz_rifle', 'grip_bipod'], desc: '.338 Lapua Magnum. One hit to the torso kills through any plate except Level IV.' },
   m82:     { name: 'Barrett M82A1 .50 BMG', slot: 'primary', cls: 'Anti-materiel', price: 9500, cal: '.50BMG', mag: 10, rpm: 100, modes: ['semi'], kg: 14.8, recoil: 3.4, reload: [3.6, 4.2], model: 'barrett', att: ['optic_sniper', 'grip_bipod'], desc: 'Fourteen kilos. Goes through walls, armour and whoever is behind them.' },
 

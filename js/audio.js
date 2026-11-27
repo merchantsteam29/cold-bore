@@ -54,7 +54,7 @@ const delayOf = (pos) => pos ? Math.min(1.5, distTo(pos) / 343) : 0;
 
 // per calibre: crack (Hz), body (Hz), loudness, length, tail
 const CALS = {
-  '9mm': [2600, 140, 0.8, 0.09, 0.5], '.45': [2000, 110, 0.85, 0.11, 0.55], '5.7': [3400, 160, 0.75, 0.07, 0.5], '.50AE': [1500, 80, 1.1, 0.16, 0.8], '.500': [1300, 70, 1.2, 0.18, 0.9],
+  '9mm': [2600, 140, 0.8, 0.09, 0.5], '9x18': [2500, 135, 0.75, 0.09, 0.5], '.45': [2000, 110, 0.85, 0.11, 0.55], '5.7': [3400, 160, 0.75, 0.07, 0.5], '.50AE': [1500, 80, 1.1, 0.16, 0.8], '.500': [1300, 70, 1.2, 0.18, 0.9],
   '5.56': [3000, 120, 1, 0.1, 0.8], '5.45': [3100, 125, 1, 0.1, 0.8], '7.62x39': [2300, 100, 1.05, 0.12, 0.9], '7.62x51': [2000, 85, 1.15, 0.14, 1.1], '7.62x54R': [1950, 82, 1.2, 0.15, 1.2], '6.8x51': [2100, 85, 1.2, 0.15, 1.15],
   '.338': [1700, 70, 1.3, 0.18, 1.4], '.50BMG': [1100, 50, 1.5, 0.26, 1.8], '12ga': [1500, 75, 1.2, 0.15, 1.0],
 };
@@ -88,7 +88,7 @@ function sample(k, pos = null, vol = 1, t = null, rate = 1, wet = 0.3) {
   const g = out(pos, wet, pos ? 6 : 2, pos ? 0.7 : 1); g.gain.value = vol; s.connect(g); s.start(t ?? now());
   return true;
 }
-const CAL_KEY = { '9mm': 'pistol', '.45': 'pistol45', '5.7': 'smg', '.50AE': 'magnum', '.500': 'magnum', '5.56': 'rifle', '5.45': 'rifle', '7.62x39': 'ak', '7.62x51': 'battle', '7.62x54R': 'sniper', '6.8x51': 'battle', '.338': 'sniper', '.50BMG': 'fifty', '12ga': 'shotgun' };
+const CAL_KEY = { '9x18': 'pistol', '9mm': 'pistol', '.45': 'pistol45', '5.7': 'smg', '.50AE': 'magnum', '.500': 'magnum', '5.56': 'rifle', '5.45': 'rifle', '7.62x39': 'ak', '7.62x51': 'battle', '7.62x54R': 'sniper', '6.8x51': 'battle', '.338': 'sniper', '.50BMG': 'fifty', '12ga': 'shotgun' };
 
 export function gunshot(cal, pos = null, suppressed = false, mine = false) {
   if (!ctx) return; const C = CALS[cal] || CALS['5.56'];

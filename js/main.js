@@ -16,7 +16,7 @@ import { Net, newCode, cleanCode, cleanName } from './net.js';
 import { Browser, Announcer } from './lobby.js';
 import { Input } from './input.js';
 import * as AU from './audio.js';
-import { makeGun, makeGrenade, MODEL_GUNS, MODEL_MELEE, resetGunCache } from './guns.js';
+import { makeGun, makeGrenade, MODEL_GUNS, MODEL_MELEE, MODEL_GRENADES, resetGunCache } from './guns.js';
 import { MODEL_PROP_IDS } from './props.js';
 import { loadModels } from './models.js';
 import { createGovernor } from '../perf.js';
@@ -1599,7 +1599,7 @@ setInterval(() => { if (document.hidden && G.net?.isHost && G.state !== 'menu') 
 // ================= REAL MODELS =================
 // guns and melee weapons always; props on Medium and up. When they're in, everything that shows one is rebuilt.
 function useModels() {
-  const ids = [...Object.values(MODEL_GUNS).map((m) => m.id), ...Object.values(MODEL_MELEE).map((m) => m.id), ...(set.quality !== 'low' ? MODEL_PROP_IDS : [])];
+  const ids = [...Object.values(MODEL_GUNS).map((m) => m.id), ...Object.values(MODEL_MELEE).map((m) => m.id), ...Object.values(MODEL_GRENADES), ...(set.quality !== 'low' ? MODEL_PROP_IDS : [])];
   loadModels(ids).then(() => {
     resetGunCache();
     for (const e of G.ents.values()) { e.gkShown = ''; if (e.body) e.body.gunKey = ''; }

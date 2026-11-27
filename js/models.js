@@ -24,7 +24,7 @@ export function parts(id, pick = () => true) {
     if (!n || !pick(n.name)) return;
     const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
     for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'tangent'].includes(k)) g.deleteAttribute(k);
-    out.push({ geometry: g, material: o.material });
+    out.push({ geometry: g, material: o.material, name: n.name });
   });
   return out;
 }

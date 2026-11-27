@@ -29,3 +29,22 @@ machete, hatchet.
 Props: Barrel_01, barrel_03, old_tyre, wooden_crate_01, wooden_military_crate, old_military_crate, metal_jerrycan,
 concrete_road_barrier, exterior_aircon_unit, trashbag, shrub_02, cement_bag, ammo_box, plastic_crate_01,
 utility_box_01, propane_tank, cardboard_box_01, metal_trash_can, covered_car, portable_generator.
+
+# Gun models (Guns & Explosives pack)
+
+Guns and grenades from the **Free CC0 Guns & Explosives Pack** by 3dmodelscc0
+(https://3dmodelscc0.itch.io/free-cc0-guns-explosives-pack), released **CC0** (public domain); the GLB conversion is
+from https://github.com/BoQsc/cc0-guns-explosives-pack-glb (CC0). Credited with thanks. Textures re-encoded as WebP
+and geometry repacked by tools/pack-glb.mjs.
+
+| File | Used as |
+|---|---|
+| ge_m4a1 | Colt M4 Carbine |
+| ge_ak47 | AKM (WASR-10) |
+| ge_shotgun | Remington 870 |
+| ge_sniper | Remington 700 SPS + scope |
+| ge_makarov | Makarov PM |
+| ge_luger | Luger P08 |
+| ge_grease | M3A1 Grease Gun |
+| ge_suomi | Suomi KP/-31 |
+| ge_frag, ge_flash, ge_smoke | grenades |

@@ -72,7 +72,7 @@ export function createViewmodel(aspect = 16 / 9) {
         leftT = info.magHome.clone().add(_v.set(0, -0.08 - magOff * 0.25, 0));
       } else if (st.reloadKind === 'shell') { rz += 0.2; leftT = new THREE.Vector3(0, -0.02, -0.12 - Math.sin(r * Math.PI * 2) * 0.05); }
     }
-    if (st.cycle >= 0 && kind === 'gun') { const c = Math.sin(st.cycle * Math.PI); if (info.pump) info.pump.position.z = -0.3 + c * 0.08; rx += c * 0.06; if (st.cycleKind === 'bolt') { rz += c * 0.25; pos.y -= c * 0.02; } }
+    if (st.cycle >= 0 && kind === 'gun') { const c = Math.sin(st.cycle * Math.PI); if (info.pump) info.pump.position.z = (info.pumpHome ? info.pumpHome.z : -0.3) + c * 0.08; rx += c * 0.06; if (st.cycleKind === 'bolt') { rz += c * 0.25; pos.y -= c * 0.02; } }
     if (info && info.mag) { info.mag.position.copy(info.magHome).add(_v.set(0, -magOff * 0.3, 0)); info.mag.visible = magOff < 0.98; }
     if ((kind === 'melee' || kind === 'fists') && st.swing >= 0) { const s = Math.sin(st.swing * Math.PI); pos.x -= s * 0.22; pos.z -= s * 0.2; pos.y += s * 0.05; ry -= s * 1.1; rx -= s * 0.4; }
     if (kind === 'nade') { const t = st.throwT || 0; pos.y += t * 0.2 - (t > 0.6 ? (t - 0.6) * 0.8 : 0); pos.z += t * 0.12 - (t > 0.6 ? (t - 0.6) * 1.2 : 0); rx -= t * 0.6; }

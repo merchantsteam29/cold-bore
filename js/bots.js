@@ -16,7 +16,7 @@ const DIFF = {
 const PREFS = {
   rifle: ['spear', 'scar17', 'hk416', 'ak74', 'm4', 'ak47'],
   cqb: ['vector', 'mp5', 'm4super', 'apc9', 'p90', 'ks12', 'uzi', 'm590', 'r870'],
-  sniper: ['m82', 'axmc', 'm1a', 'r700'],
+  sniper: ['m82', 'axmc', 'm700', 'm1a', 'r700'],
   lmg: ['m249', 'scar17', 'm4', 'ak47'],
 };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
