@@ -205,7 +205,7 @@ export function buildWorld(scene, mapId, quality = 'high') {
   boxes.push({ min: new THREE.Vector3(-hw - 5, -5, -hd - 5), max: new THREE.Vector3(hw + 5, 60, -hd), mat: 'steel', edge: true });
   boxes.push({ min: new THREE.Vector3(-hw - 5, -5, hd), max: new THREE.Vector3(hw + 5, 60, hd + 5), mat: 'steel', edge: true });
 
-  const W = { def, id: mapId, name: def.name, boxes, meshes, decor, ground, size: gs, spawns: meta.spawns, flags: meta.flags, ffa: meta.ffa, sky: def.sky, sun: def.sun, fog: def.fog };
+  const W = { def, id: mapId, name: def.name, boxes, meshes, decor, ground, size: gs, looks, spawns: meta.spawns, flags: meta.flags, ffa: meta.ffa, sky: def.sky, sun: def.sun, fog: def.fog };
   buildGrid(W); buildNav(W);
   W.dispose = () => { for (const m of meshes) { scene.remove(m); m.geometry.dispose(); } scene.remove(decor); scene.remove(ground); ground.geometry.dispose(); };
   return W;
@@ -688,4 +688,31 @@ function mergeStatic(group) {
   for (const [m, { list, shadow }] of by) { const merged = mergeGeometries(list); if (!merged) continue; const mesh = new THREE.Mesh(merged, m); mesh.castShadow = shadow; mesh.receiveShadow = true; group.add(mesh); for (const g of list) g.dispose(); }
   // empty groups left behind
   const empties = []; group.traverse((o) => { if (o !== group && !o.isMesh && !o.isLine && !o.isSprite && !o.isInstancedMesh && !o.children.length) empties.push(o); }); for (const o of empties) o.removeFromParent();
+}
+
+// ---------- photo-scanned surfaces (js/photo.js) ----------
+// which photo set each look uses; 'relief' = keep the painted colour map, take only the surface (containers)
+const PHOTO_OF = { plaster0: 'plaster2', plaster1: 'plaster', plaster2: 'plaster2', plaster3: 'plaster2', plaster4: 'plaster2', concrete0: 'concrete', block: 'block', tile: 'floor', wood: 'planks', metal: 'corr', metalRust: 'corrRust', steel: 'metal' };
+for (let i = 0; i < 6; i++) PHOTO_OF['cont' + i] = 'container:relief';
+const PLASTER_TINT = [0xcdb896, 0xc2a67e, 0xd6c8ad, 0xb39a78, 0xbfae92];
+export function applyPhotos(W, P) {
+  if (!W || !P || W.photos) return false;
+  W.photos = true;
+  const white = new THREE.Color(0xffffff);
+  for (const [key, L] of W.looks) {
+    const spec = PHOTO_OF[key]; if (!spec) continue;
+    const [pk, mode] = spec.split(':'), T = P[pk], m = L.mat; if (!T || !m) continue;
+    if (mode !== 'relief') { m.map = T.d; const tint = key.startsWith('plaster') ? PLASTER_TINT[+key.slice(7)] : null; m.color.copy(white); if (tint) { const c = new THREE.Color(tint); c.multiplyScalar(1 / Math.max(c.r, c.g, c.b)); m.color.lerp(c, 0.3); } if (pk === 'plaster') m.color.multiplyScalar(1.55); /* the clay scan is dark: lift it to sun-bleached */ }
+    m.normalMap = T.n; m.normalScale = new THREE.Vector2(1, 1);
+    m.roughnessMap = T.a; m.roughness = 1; m.aoMap = T.a; m.aoMapIntensity = 0.8;
+    if (pk === 'metal' || pk === 'corr' || pk === 'corrRust' || pk === 'container') { m.metalnessMap = T.a; m.metalness = pk === 'container' ? 0.5 : 1; }
+    m.needsUpdate = true;
+  }
+  // the ground: sand or asphalt, a tile every 3 m
+  const g = W.ground, gk = W.def.ground === 'asphalt' ? 'asphalt' : 'sand', T = P[gk];
+  if (g && T) {
+    const n = (W.size[0] + 200) / 3, rep = (t) => { const c = t.clone(); c.repeat.set(n, n); c.needsUpdate = true; return c; };
+    g.material.map = rep(T.d); g.material.normalMap = rep(T.n); g.material.roughnessMap = rep(T.a); g.material.aoMap = g.material.roughnessMap; g.material.roughness = 1; g.material.color.setHex(0xffffff); g.material.needsUpdate = true;
+  }
+  return true;
 }

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import * as TX from './tex.js';
 import { GUNS, ATTACH, MELEE, UTIL, ARMOR, HELMET, CAL, PARTS, ECON, FINISH, UNIFORM, MODES, TEAM, fmt$ } from './data.js';
-import { buildWorld, MAP_LIST, groundAt, moveBody, fits, clearLine, raycast } from './world.js';
+import { buildWorld, applyPhotos, MAP_LIST, groundAt, moveBody, fits, clearLine, raycast } from './world.js';
 import { Soldier } from './soldier.js';
 import { createGore } from './gore.js';
 import { createFX } from './fx.js';
@@ -19,6 +19,7 @@ import * as AU from './audio.js';
 import { makeGun, makeGrenade } from './guns.js';
 import { createGovernor } from '../perf.js';
 import { createPost } from './post.js';
+import { loadPhotos, photos } from './photo.js';
 
 const VER = 3; // network protocol: players on other versions can't join
 const TEST = /[?&]test\b/.test(location.search);
@@ -67,6 +68,13 @@ const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 5), new THREE
 const VM = createViewmodel(innerWidth / innerHeight);
 const pfx = createPost(renderer, scene, camera, VM.scene, VM.cam);
 let shadowEvery = 1, shadowN = 0;
+// photo-scanned textures: loaded in the background (not on Low), put on the map as soon as they're in
+function usePhotos() {
+  loadPhotos(renderer).then((P) => {
+    let W0 = null; try { W0 = G.W; } catch { return; }
+    if (P && W0 && set.quality !== 'low' && applyPhotos(W0, P) && G.state !== 'menu') warmShaders();
+  });
+}
 // Low: every PBR material is swapped for a Lambert one (far cheaper per pixel: no reflections, no roughness maths).
 // The swap is remembered both ways, so switching quality back restores the originals.
 const toLamb = new WeakMap(), toStd = new WeakMap();
@@ -97,6 +105,7 @@ function applyQuality() {
   sun.shadow.radius = q === 'ultra' ? 3 : 1.5;
   if (sun.shadow.mapSize.x !== sz) { sun.shadow.mapSize.set(sz, sz); sun.shadow.map?.dispose(); sun.shadow.map = null; }
   // Low: no shadows at all (the sky light still shades everything). Materials recompile when this changes.
+  if (q !== 'low') usePhotos();
   const sh = q !== 'low';
   let W0 = null; try { W0 = G.W; } catch { /* called at boot, before the game state exists */ }
   pfx.setCheap(q === 'low', W0?.def); cheapen(scene, q === 'low'); cheapen(VM.scene, q === 'low');
@@ -210,6 +219,7 @@ function buildMatch(cfg) {
   G.scores = [0, 0]; G.timeLeft = MODES[cfg.mode].time; G.ended = false;
   AU.ambience(cfg.map);
   $('flagsH')?.remove();
+  if (set.quality !== 'low' && photos()) applyPhotos(G.W, photos());
   warmShaders();
 }
 // Every kind of thing that can appear mid-fight (soldiers, ragdoll wounds, gibs, debris, fireballs, flashes, tracers,
