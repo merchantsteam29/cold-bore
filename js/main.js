@@ -1304,7 +1304,11 @@ $('buyClose').onclick = closeBuy;
 
 // ================= MENUS =================
 function showTitle() {
-  if (SOFTWARE && !TEST) toast('Your browser is drawing the game WITHOUT your graphics card (hardware acceleration is off: ' + gpuName + '). Turn on "Use graphics acceleration" in the browser settings and restart it. It will be many times faster.', 15000);
+  if (SOFTWARE && !TEST && !$('gpuWarn')) {
+    const w = document.createElement('div'); w.id = 'gpuWarn'; w.className = 'panel';
+    w.innerHTML = '<b>Your graphics card is not being used.</b> The browser is drawing the game with the processor (' + esc(gpuName) + '), which is many times slower. Turn on <b>Use graphics acceleration when available</b> (Edge: <span class="mono">edge://settings/system</span>, Chrome: <span class="mono">chrome://settings/system</span>) and restart the browser.';
+    $('title').appendChild(w);
+  }
   $('title').hidden = false; $('warn').hidden = !!set.warned ? true : $('warn').hidden;
   $('nameIn').value = prog.name;
   $('bankLine').textContent = 'Bank ' + fmt$(bank());
@@ -1370,7 +1374,7 @@ for (const [id, k] of Object.entries({ sSens: 'sens', sAds: 'ads', sFov: 'fov', 
   $(id).addEventListener('input', () => {
     const el = $(id); set[k] = el.type === 'range' ? +el.value : el.value;
     const v = $(id + 'V'); if (v) v.textContent = k === 'vol' ? Math.round(set[k] * 100) + '%' : set[k];
-    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'perf') perfEl.hidden = set.perf !== '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
+    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); if (G.W && G.state !== 'menu') warmShaders(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'perf') perfEl.hidden = set.perf !== '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
     store(SKEY, set);
   });
 }
@@ -1425,7 +1429,7 @@ function perfTick(raw, cpuMs) {
   if (PF.acc < 0.5) return;
   if (!perfEl.hidden) {
     const i = renderer.info.render, sz = renderer.getDrawingBufferSize(new THREE.Vector2());
-    perfEl.textContent = `${Math.round(PF.n / PF.acc)} fps · ${(PF.acc / PF.n * 1000).toFixed(1)} ms (worst ${(PF.worst * 1000).toFixed(0)}) · game ${(PF.cpu / PF.n).toFixed(1)} ms · ${i.calls} draws · ${(i.triangles / 1000).toFixed(0)}k tris · ${sz.x}×${sz.y} (${Math.round(gov.scale * 100)}%) · ${set.quality} · ${gpuName}`;
+    perfEl.innerHTML = (SOFTWARE ? '<b style="color:#ff7a6a">NO GRAPHICS CARD (hardware acceleration off) · </b>' : '') + esc(`${Math.round(PF.n / PF.acc)} fps · ${(PF.acc / PF.n * 1000).toFixed(1)} ms (worst ${(PF.worst * 1000).toFixed(0)}) · game ${(PF.cpu / PF.n).toFixed(1)} ms · ${i.calls} draws · ${(i.triangles / 1000).toFixed(0)}k tris · ${sz.x}×${sz.y} (${Math.round(gov.scale * 100)}%) · ${set.quality}`) + '<br>' + esc(gpuName);
   }
   PF.n = PF.acc = PF.worst = PF.cpu = 0;
 }
