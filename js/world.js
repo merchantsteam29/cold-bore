@@ -19,6 +19,7 @@ export const MATS = {
 };
 
 export function buildWorld(scene, mapId, quality = 'high') {
+  const useModels = quality !== 'low';
   const def = MAP_DEFS[mapId] || MAP_DEFS.hadra;
   const boxes = [];      // { min: Vector3, max: Vector3, mat, look }
   const insts = {};      // prop kind -> [{ x, y, z, rot, sc, color }]
@@ -133,6 +134,7 @@ export function buildWorld(scene, mapId, quality = 'high') {
       const hx = c ? L / 2 : W / 2, hz = c ? W / 2 : L / 2;
       boxes.push({ min: new THREE.Vector3(x - hx, 0, z - hz), max: new THREE.Vector3(x + hx, 1.05, z + hz), mat: 'metal' });
       boxes.push({ min: new THREE.Vector3(x - hx * (c ? 0.5 : 0.9), 1.05, z - hz * (c ? 0.9 : 0.5)), max: new THREE.Vector3(x + hx * (c ? 0.35 : 0.9), 1.5, z + hz * (c ? 0.9 : 0.35)), mat: 'metal' });
+      if (!burnt && (Math.abs(Math.round(x * 3 + z * 7)) % 2 === 0)) { B.prop('covered', x, 0, z, c ? Math.PI / 2 : 0, 1); return; } // under a tarp
       const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = c ? 0 : Math.PI / 2;
       const body = std({ color: burnt ? 0x2a2522 : col, roughness: burnt ? 0.95 : 0.45, metalness: burnt ? 0.2 : 0.6, map: burnt ? TX.metalPlate(0x2b2622, 4).map : null });
       const m = (geo, mat, px, py, pz) => { const o = new THREE.Mesh(geo, mat); o.position.set(px, py, pz); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
@@ -175,7 +177,7 @@ export function buildWorld(scene, mapId, quality = 'high') {
 
   // ---------- the map ----------
   const meta = def.build(B, { decor, std });
-  buildProps(insts, decor, std);
+  let propMeshes = buildProps(insts, decor, std, useModels);
   mergeStatic(decor);
 
   // ground
@@ -207,6 +209,8 @@ export function buildWorld(scene, mapId, quality = 'high') {
 
   const W = { def, id: mapId, name: def.name, boxes, meshes, decor, ground, size: gs, looks, spawns: meta.spawns, flags: meta.flags, ffa: meta.ffa, sky: def.sky, sun: def.sun, fog: def.fog };
   buildGrid(W); buildNav(W);
+  // the real prop models arrived (or the quality changed): redo the props
+  W.rebuildProps = (models = quality !== 'low') => { for (const m of propMeshes) m.removeFromParent(); propMeshes = buildProps(insts, decor, std, models); return propMeshes; };
   W.dispose = () => { for (const m of meshes) { scene.remove(m); m.geometry.dispose(); } scene.remove(decor); scene.remove(ground); ground.geometry.dispose(); };
   return W;
 }
@@ -559,8 +563,32 @@ const MAP_DEFS = {
         else if (k < 0.9) { if (B.free(x, z, 0.4)) B.prop('rock', x, 0, z, R() * 6, 0.6 + R() * 1.2); }
         else { if (B.free(x, z, 0.5)) for (let t = 0; t < 2 + R() * 3; t++) B.prop('bag', x + (R() - 0.5) * 0.9, 0, z + (R() - 0.5) * 0.9, R() * 6, 0.7 + R() * 0.5); }
       }
+      // checkpoints A and C: military crates and ammo boxes behind the sandbags
+      for (const sx of [-1, 1]) {
+        const x = sx * 34;
+        B.prop('mcrate', x - sx * 1.5, 0, -1.6, 0, 1, null, [0.62, 0.26, 0.47, 'wood']); B.prop('mcrate', x - sx * 1.5, 0.47, -1.6, 0.05, 1);
+        B.prop('ocrate', x + sx * 1.0, 0, 1.5, 0, 1, null, [0.91, 0.49, 0.3, 'wood']);
+        for (let k = 0; k < 3; k++) B.prop('ammo', x - sx * 0.3 + k * 0.12, 0, -1.8, Math.PI / 2, 1);
+        B.prop('jerrycan', x + sx * 2.2, 0, -1.7, 0.3, 1); B.prop('jerrycan', x + sx * 2.6, 0, -1.6, -0.2, 1);
+      }
+      // the market: boxes and crates by the stalls
+      for (const [x, z] of [[-6, -4], [-1.5, -4.5], [3.5, -4], [-6, 3.5], [4, 3.5]]) {
+        B.prop(R() < 0.5 ? 'cbox' : 'pcrate', x + 1.5, 0, z + 0.2, R() * 6, 1); B.prop('cbox', x - 1.5, 0, z - 0.3, R() * 6, 1);
+        if (R() < 0.5) B.prop('pcrate', x + 1.5, 0.27, z + 0.2, R() * 6, 1);
+      }
+      // dumpsters in the streets
+      for (const [x, z, r] of [[-20, 9, 0], [22, -9, 0], [-9, -21, 1], [10, 22, 1], [-46, 10, 0], [46, -10, 0]]) if (B.free(x, z, 1.1)) B.prop('dumpster', x, 0, z, r ? Math.PI / 2 : 0, 1, null, r ? [0.28, 0.93, 0.91] : [0.93, 0.28, 0.91]);
       for (const hs of B.houses) {
         const cx = (hs.x0 + hs.x1) / 2, cz = (hs.z0 + hs.z1) / 2;
+        // things left against the walls
+        const k = R(), wx = R() < 0.5 ? hs.x0 - 0.35 : hs.x1 + 0.35, wz = hs.z0 + 0.8 + R() * (hs.z1 - hs.z0 - 1.6);
+        if (B.free(wx, wz, 0.3)) {
+          if (k < 0.25) { B.prop('jerrycan', wx, 0, wz, R() * 6, 1); if (R() < 0.5) B.prop('jerrycan', wx, 0, wz + 0.4, R() * 6, 1); }
+          else if (k < 0.45) B.prop('propane', wx, 0, wz, R() * 6, 1, null, [0.17, 0.17, 0.55]);
+          else if (k < 0.6) { B.prop('cement', wx, 0, wz, (R() - 0.5) * 0.4, 1); B.prop('cement', wx, 0.18, wz + (R() - 0.5) * 0.1, (R() - 0.5) * 0.5, 1); }
+          else if (k < 0.7) B.prop('generator', wx, 0, wz, Math.PI / 2, 1, null, [0.29, 0.41, 0.58]);
+          else if (k < 0.8) B.prop('ubox', wx, 0, wz, wx < hs.x0 ? Math.PI / 2 : -Math.PI / 2, 1, null, [0.22, 0.26, 1.12]);
+        }
         if (R() < 0.55) B.prop('tank', hs.x0 + 1 + R() * (hs.x1 - hs.x0 - 2), hs.top, hs.z0 + 1 + R() * (hs.z1 - hs.z0 - 2), R() * 6, 1, null, [0.55, 0.55, 1.35, 'metal']);
         if (R() < 0.4) B.prop('dish', cx + (R() - 0.5) * 2, hs.top, cz + (R() - 0.5) * 2, R() * 6, 1);
         // an AC unit hanging on a wall, under the roof
@@ -654,6 +682,16 @@ const MAP_DEFS = {
         else if (k < 0.75) { if (B.free(x, z, 1.5)) B.prop('puddle', x, 0, z, R() * 6, [1 + R() * 2.5, 1, 0.6 + R() * 1.5]); }
         else if (k < 0.85) { if (B.free(x, z, 0.6)) B.prop('crate', x, 0, z, R() * 0.4, 0.7 + R() * 0.5, null, [0.4, 0.4, 0.8, 'wood']); }
         else { if (B.free(x, z, 0.4)) for (let t = 0; t < 1 + R() * 4; t++) B.prop('tire', x, t * 0.21, z, R() * 6, 1); }
+      }
+      // the yard's own clutter: crate stacks, generators, gas, dumpsters
+      for (let i = 0; i < 40; i++) {
+        const x = (R() - 0.5) * 110, z = (R() - 0.5) * 90, k = R();
+        if (k < 0.3) { if (B.free(x, z, 1)) { const n = 1 + ((R() * 3) | 0); for (let t = 0; t < n; t++) B.prop('mcrate', x, t * 0.47, z, t * 0.06, 1); B.solid(x - 0.62, 0, z - 0.26, x + 0.62, n * 0.47, z + 0.26, 'wood'); } }
+        else if (k < 0.45) { if (B.free(x, z, 0.6)) B.prop('generator', x, 0, z, 0, 1, null, [0.41, 0.29, 0.58]); }
+        else if (k < 0.6) { if (B.free(x, z, 0.4)) for (let t = 0; t < 2 + R() * 3; t++) B.prop('propane', x + (t % 2) * 0.36, 0, z + ((t / 2) | 0) * 0.36, R() * 6, 1); }
+        else if (k < 0.72) { if (B.free(x, z, 1.1)) B.prop('dumpster', x, 0, z, 0, 1, null, [0.93, 0.28, 0.91]); }
+        else if (k < 0.85) { if (B.free(x, z, 0.5)) { B.prop('pcrate', x, 0, z, R() * 6, 1); B.prop('pcrate', x + 0.35, 0, z, R() * 6, 1); B.prop('pcrate', x + 0.17, 0.27, z, R() * 6, 1); } }
+        else { if (B.free(x, z, 1)) B.prop('ocrate', x, 0, z, 0, 1, null, [0.91, 0.49, 0.3, 'wood']); }
       }
       // painted lane lines down the aisles
       for (const x of [-11, 0, 11, 21]) for (let z = -40; z < 44; z += 5) if (B.free(x, z, 0.1)) B.prop('line', x, 0, z, 0, 1);

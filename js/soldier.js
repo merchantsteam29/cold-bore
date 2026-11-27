@@ -444,6 +444,8 @@ export class Soldier {
       }
       R.rest = moving < 1e-7 * R.p.length ? R.rest + h : 0;
     }
+    // a joint that blew up (NaN) is put back where it was, at rest
+    for (let i = 0; i < R.p.length; i++) if (!Number.isFinite(R.p[i].x + R.p[i].y + R.p[i].z)) { R.p[i].copy(Number.isFinite(R.prev[i].x + R.prev[i].y + R.prev[i].z) ? R.prev[i] : this.jp[I.pelvis] || new THREE.Vector3()); R.prev[i].copy(R.p[i]); }
     // the meshes follow
     const P = this.jp; for (let i = 0; i < J.length; i++) P[i].copy(R.p[i]);
     this.apply(null);

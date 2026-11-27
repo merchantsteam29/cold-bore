@@ -16,7 +16,9 @@ import { Net, newCode, cleanCode, cleanName } from './net.js';
 import { Browser, Announcer } from './lobby.js';
 import { Input } from './input.js';
 import * as AU from './audio.js';
-import { makeGun, makeGrenade } from './guns.js';
+import { makeGun, makeGrenade, MODEL_GUNS, MODEL_MELEE, resetGunCache } from './guns.js';
+import { MODEL_PROP_IDS } from './props.js';
+import { loadModels } from './models.js';
 import { createGovernor } from '../perf.js';
 import { createPost } from './post.js';
 import { loadPhotos, photos } from './photo.js';
@@ -1384,7 +1386,7 @@ for (const [id, k] of Object.entries({ sSens: 'sens', sAds: 'ads', sFov: 'fov', 
   $(id).addEventListener('input', () => {
     const el = $(id); set[k] = el.type === 'range' ? +el.value : el.value;
     const v = $(id + 'V'); if (v) v.textContent = k === 'vol' ? Math.round(set[k] * 100) + '%' : set[k];
-    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); if (G.W && G.state !== 'menu') warmShaders(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'perf') perfEl.hidden = set.perf !== '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
+    if (k === 'vol') AU.setVolume(set.vol); if (k === 'gore') gore.level = set.gore / 100; if (k === 'quality') { applyQuality(); useModels(); if (G.W) G.W.rebuildProps(set.quality !== 'low'); if (G.W && G.state !== 'menu') warmShaders(); toast('Graphics: ' + set.quality + '. Anti-aliasing changes after a reload.', 2500); } if (k === 'pads') input.pads = set.pads === '1'; if (k === 'perf') perfEl.hidden = set.perf !== '1'; if (k === 'fov') { camera.fov = vfov(); camera.updateProjectionMatrix(); }
     store(SKEY, set);
   });
 }
@@ -1561,7 +1563,7 @@ function placeCamera(dt) {
 }
 function drawScope(info) {
   const cv = $('scopeRet'), g = cv.getContext('2d'); g.clearRect(0, 0, 512, 512);
-  const img = TX.reticle(info?.optic ? (ATTACH[info.optic].reticle) : 'mil').image;
+  const img = TX.reticle(ATTACH[info?.optic]?.reticle || 'mil').image;
   g.drawImage(img, 0, 0, 512, 512);
 }
 function draw() {
@@ -1593,6 +1595,19 @@ function menuTick(dt) {
 }
 // the host keeps simulating when its tab is in the background
 setInterval(() => { if (document.hidden && G.net?.isHost && G.state !== 'menu') { input.pollPad(0.05); step(0.05, false); } }, 50);
+
+// ================= REAL MODELS =================
+// guns and melee weapons always; props on Medium and up. When they're in, everything that shows one is rebuilt.
+function useModels() {
+  const ids = [...Object.values(MODEL_GUNS).map((m) => m.id), ...Object.values(MODEL_MELEE).map((m) => m.id), ...(set.quality !== 'low' ? MODEL_PROP_IDS : [])];
+  loadModels(ids).then(() => {
+    resetGunCache();
+    for (const e of G.ents.values()) { e.gkShown = ''; if (e.body) e.body.gunKey = ''; }
+    P.vmKey = '';
+    if (G.W) { G.W.rebuildProps(set.quality !== 'low'); if (G.state !== 'menu') warmShaders(); }
+  });
+}
+useModels();
 
 // ================= SYNC (progress between devices) =================
 if (window.GameSync) {

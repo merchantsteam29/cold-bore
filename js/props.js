@@ -4,6 +4,41 @@
 import * as THREE from 'three';
 import * as TX from './tex.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ready, parts, bounds } from './models.js';
+
+// Real models for prop kinds (Poly Haven, CC0). rx / ry turn the model to match how the map places that kind,
+// scale resizes it; box is the stand-in size until the model has loaded. alt: a second model for every other one.
+export const MODEL_PROPS = {
+  barrel: { id: 'Barrel_01', alt: 'barrel_03' },
+  tire: { id: 'old_tyre', rx: Math.PI / 2 },
+  bag: { id: 'trashbag', scale: 0.8 },
+  ac: { id: 'exterior_aircon_unit', scale: 0.5, ry: Math.PI },
+  barrier: { id: 'concrete_road_barrier', ry: Math.PI / 2, scale: 1.25 },
+  shrub: { id: 'shrub_02', scale: 0.3 },
+  covered: { id: 'covered_car', box: [1.79, 1.41, 4.38] },
+  jerrycan: { id: 'metal_jerrycan', box: [0.35, 0.46, 0.17] },
+  cement: { id: 'cement_bag', box: [0.46, 0.18, 0.7] },
+  ammo: { id: 'ammo_box', box: [0.09, 0.18, 0.26] },
+  mcrate: { id: 'wooden_military_crate', box: [1.24, 0.47, 0.52] },
+  ocrate: { id: 'old_military_crate', box: [1.82, 0.3, 0.98] },
+  pcrate: { id: 'plastic_crate_01', box: [0.3, 0.26, 0.41] },
+  cbox: { id: 'cardboard_box_01', box: [0.39, 0.34, 0.52] },
+  propane: { id: 'propane_tank', box: [0.34, 0.55, 0.34] },
+  generator: { id: 'portable_generator', box: [0.82, 0.58, 0.56] },
+  ubox: { id: 'utility_box_01', box: [0.52, 1.12, 0.43] },
+  dumpster: { id: 'metal_trash_can', box: [1.85, 0.91, 0.56] },
+  wcrate: { id: 'wooden_crate_01', box: [0.83, 0.35, 0.41] },
+};
+export const MODEL_PROP_IDS = [...new Set(Object.values(MODEL_PROPS).flatMap((m) => [m.id, m.alt].filter(Boolean)))];
+// a model's parts, turned and scaled, standing on the ground, centred
+function modelParts(spec, id) {
+  const P = parts(id); if (!P) return null;
+  const rot = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(spec.rx || 0, spec.ry || 0, 0));
+  for (const p of P) p.geometry.applyMatrix4(rot);
+  const b = bounds(P), c = b.getCenter(new THREE.Vector3()), k = spec.scale || 1;
+  for (const p of P) { p.geometry.translate(-c.x, -b.min.y, -c.z); p.geometry.scale(k, k, k); p.geometry.computeBoundingSphere(); }
+  return P;
+}
 
 const cache = new Map();
 function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
@@ -52,22 +87,36 @@ function def(kind, std) {
     case 'reel': d = { geo: merge([[new THREE.CylinderGeometry(0.7, 0.7, 0.06, 20), M(0, 0.7, -0.4, Math.PI / 2)], [new THREE.CylinderGeometry(0.7, 0.7, 0.06, 20), M(0, 0.7, 0.4, Math.PI / 2)], [new THREE.CylinderGeometry(0.45, 0.45, 0.76, 16), M(0, 0.7, 0, Math.PI / 2)]]), mat: std({ map: TX.woodPlanks(0x8a6a44, 23).map, roughness: 0.85 }) }; break;
     case 'puddle': d = { geo: geo(new THREE.CircleGeometry(1, 20), (g) => { g.rotateX(-Math.PI / 2); g.translate(0, 0.012, 0); }), mat: std({ color: 0x1b1d1f, roughness: 0.04, metalness: 0.6, transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -1 }), noShadow: true }; break;
     case 'line': d = { geo: geo(new THREE.PlaneGeometry(0.15, 3), (g) => { g.rotateX(-Math.PI / 2); g.translate(0, 0.011, 0); }), mat: std({ color: 0xd8b632, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1 }), noShadow: true }; break;
+    default: if (MODEL_PROPS[kind]?.box) { const [w, h, l] = MODEL_PROPS[kind].box; d = { geo: geo(new THREE.BoxGeometry(w, h, l), (g) => g.translate(0, h / 2, 0)), mat: std({ color: 0x6b6250, roughness: 0.9 }) }; } break;
     case 'crate': d = { geo: geo(new THREE.BoxGeometry(1, 1, 1), (g) => g.translate(0, 0.5, 0)), mat: std({ map: TX.woodPlanks(0x7a5a3a, 12).map, roughness: 0.85 }) }; break;
   }
   cache.set(kind, d); return d;
 }
 
-export function buildProps(insts, parent, std) {
+export function buildProps(insts, parent, std, useModels = true) {
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0);
-  for (const [kind, list] of Object.entries(insts)) {
-    const d = def(kind, std); if (!d || !list.length) continue;
-    const im = new THREE.InstancedMesh(d.geo, d.mat, list.length);
+  const made = [];
+  const place = (geo, mat, list, tinted, shadow) => {
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
     list.forEach((p, i) => {
       q.setFromAxisAngle(Y, p.rot); const s = typeof p.sc === 'number' ? sc.setScalar(p.sc) : sc.set(...p.sc);
       m.compose(v.set(p.x, p.y, p.z), q, s); im.setMatrixAt(i, m);
-      im.setColorAt(i, col.setHex(p.color ?? 0xffffff));
+      if (tinted) im.setColorAt(i, col.setHex(p.color ?? 0xffffff));
     });
-    im.castShadow = !d.noShadow; im.receiveShadow = true; im.computeBoundingSphere();
-    parent.add(im);
+    im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); im.frustumCulled = false;
+    parent.add(im); made.push(im);
+  };
+  for (const [kind, list] of Object.entries(insts)) {
+    if (!list.length) continue;
+    const spec = MODEL_PROPS[kind];
+    if (useModels && spec && ready.has(spec.id)) {
+      // the real model (models keep their own colours: no tint); every other one uses the alternative, if any
+      const groups = spec.alt && ready.has(spec.alt) ? [[spec.id, list.filter((_, i) => i % 2 === 0)], [spec.alt, list.filter((_, i) => i % 2 === 1)]] : [[spec.id, list]];
+      for (const [id, L] of groups) { if (!L.length) continue; for (const p of modelParts(spec, id) || []) place(p.geometry, p.material, L, false, true); }
+      continue;
+    }
+    const d = def(kind, std); if (!d) continue;
+    place(d.geo, d.mat, list, true, !d.noShadow);
   }
+  return made;
 }

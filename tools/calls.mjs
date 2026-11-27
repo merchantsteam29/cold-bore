@@ -9,7 +9,8 @@ process.env.SH_URL = `http://localhost:${port}/`;
 await sleep(600);
 const { ev, done } = await open(import.meta.url);
 await sleep(6000);
-await ev(`document.getElementById('warnOk').click()`);
+await ev(`document.getElementById('warnOk').click(); const q = document.getElementById('sQual'); q.value = '${process.env.Q || 'low'}'; q.dispatchEvent(new Event('input'));`); // Q_SET
+for (let i = 0; i < 60 && !(await ev(`const M = await import('./js/models.js'); return M.ready.size >= 20;`)); i++) await sleep(500);
 for (const map of ['hadra', 'kessel']) {
   await ev(`__s.hostMatch(__s.newMatchCfg({ mode: 'tdm', map: '${map}', bots: 10, pub: false }), true)`); await sleep(2500);
   await ev(`__s.deploy(); for (const e of __s.G.ents.values()) if (e.bot && !e.alive) __s.spawnEnt(e);`); await sleep(2000);

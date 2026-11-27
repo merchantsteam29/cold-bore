@@ -12,6 +12,7 @@ await sleep(600);
 const { ev, shot, done } = await open(import.meta.url, { tag: '-' + Q });
 await sleep(6000);
 await ev(`document.getElementById('warnOk').click(); __s.set.quality = '${Q}'; document.getElementById('sQual').value = '${Q}'; document.getElementById('sQual').dispatchEvent(new Event('input'));`);
+for (let i = 0; i < 60 && !(await ev(`const M = await import('./js/models.js'); return M.ready.size >= 20;`)); i++) await sleep(500); // models load
 await sleep(2500); await shot('0-title');
 const spots = { hadra: [[-21, 1.5, -Math.PI / 2 - 0.12], [-40, -30, -0.6]], kessel: [[0, 14, Math.PI], [-46, 4, -Math.PI / 2]] };
 for (const map of ['hadra', 'kessel']) {

@@ -6,6 +6,22 @@ import * as TX from './tex.js';
 import { GUNS, ATTACH, MELEE, FINISH } from './data.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ready, parts, bounds } from './models.js';
+
+// Guns with a real model (models.js). The model's barrel points +X with +Y up; grip(b, hi) gives the hand's
+// position in model space from its bounds (b) and the height of the barrel near the muzzle (hi).
+export const MODEL_GUNS = {
+  p38: { id: 'service_pistol', pick: (n) => /_(pistol|slide|hammer|trigger)_a$/.test(n), fallback: 'pistol', pistol: true },
+  mosin: { id: 'bolt_action_rifle_7_62', pick: (n) => !/bullet|bolt_b|scope/.test(n), fallback: 'bolt' },
+};
+export const MODEL_MELEE = { machete: { id: 'machete', grip: 0.09 }, hatchet: { id: 'hatchet', grip: 0.06 } };
+export function resetGunCache() { gunCache.clear(); }
+// highest and lowest point of the geometry within a slice of X (model space)
+function sliceY(P, x0, x1) {
+  let lo = Infinity, hi = -Infinity;
+  for (const p of P) { const a = p.geometry.attributes.position; for (let i = 0; i < a.count; i++) { const x = a.getX(i); if (x >= x0 && x <= x1) { const y = a.getY(i); if (y < lo) lo = y; if (y > hi) hi = y; } } }
+  return [lo, hi];
+}
 
 // rounded parts (real guns have no sharp box edges), cached by size
 const geoCache = new Map();
@@ -54,7 +70,36 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
   const magAtt = has('mag');
   const mag = (obj) => { obj.name = 'mag'; info.mag = obj; info.magHome.copy(obj.position); return obj; };
 
-  switch (G.model) {
+  const MG = MODEL_GUNS[G.model], useModel = MG && ready.has(MG.id) && (parts(MG.id, MG.pick) || []).length > 0;
+  switch (useModel ? 'model' : MG ? MG.fallback : G.model) {
+    case 'model': {
+      // a real model: turned so the barrel points -Z, moved so the grip is at the origin
+      const P = parts(MG.id, MG.pick), b = bounds(P), Y = new THREE.Vector3(0, 1, 0), L = b.max.x - b.min.x;
+      const [mLo, mHi] = sliceY(P, b.max.x - L * 0.06, b.max.x);           // around the muzzle
+      const bore = (mLo + mHi) / 2;
+      const grip = MG.pistol ? new THREE.Vector3(b.min.x + L * 0.17, b.max.y - 0.07, 0) : new THREE.Vector3(b.min.x + L * 0.3, bore - 0.065, 0);
+      const toGun = (v) => v.clone().sub(grip).applyAxisAngle(Y, Math.PI / 2);
+      const g = new THREE.Group(); g.rotation.y = Math.PI / 2; g.position.copy(grip).negate().applyAxisAngle(Y, Math.PI / 2);
+      for (const p of P) { const m = new THREE.Mesh(p.geometry, p.material); m.castShadow = true; g.add(m); }
+      root.add(g);
+      info.muzzle.copy(toGun(new THREE.Vector3(b.max.x, bore, 0)));
+      if (MG.pistol) {
+        info.sightY = b.max.y - grip.y + 0.003; info.sightZ = 0.03; info.rail = null;
+        info.left.set(-0.012, -0.02, 0); info.eject.copy(toGun(new THREE.Vector3(b.max.x - L * 0.35, b.max.y - 0.01, 0.015))); info.len = L;
+      } else {
+        const [, rHi] = sliceY(P, grip.x + 0.05, grip.x + 0.25);               // the receiver, ahead of the hand
+        info.rail = toGun(new THREE.Vector3(grip.x + 0.14, rHi, 0));
+        info.sightY = Math.max(mHi, rHi) - grip.y + 0.004; info.sightZ = 0.06;
+        // the PU scope is part of the model: aiming looks through it (centre of the tube, ~2 cm under its top)
+        if (G.model === 'mosin') { info.sightY = rHi - grip.y - 0.02; info.zoom = 4; info.scope = true; info.optic = 'pu'; info.sightZ = 0.12; }
+        info.left.copy(toGun(new THREE.Vector3(grip.x + 0.42, bore - 0.04, 0)));
+        info.eject.copy(toGun(new THREE.Vector3(grip.x + 0.17, rHi, 0.02)));
+        const [uLo] = sliceY(P, grip.x + 0.4, grip.x + 0.55); info.under = toGun(new THREE.Vector3(grip.x + 0.48, uLo, 0)); info.side = null;
+        info.len = L;
+      }
+      info.model = true;
+      break;
+    }
     case 'pistol': case 'deagle': {
       const L = (G.long || 1) * (G.model === 'deagle' ? 1.35 : 1), slideH = G.model === 'deagle' ? 0.045 : 0.034;
       box(0.03, slideH, 0.19 * L, 0, 0.05, -0.06 * L, G.model === 'deagle' ? S : F);           // slide
@@ -206,7 +251,7 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
   const teeth = (y, z0, len, w = 0.05) => { for (let z = z0; z > z0 - len; z -= 0.0105) box(w * 0.98, 0.004, 0.0052, 0, y, z, K); };
   const tor = (r, t, x, y, z, m, rotY = Math.PI / 2) => { const o = new THREE.Mesh(new THREE.TorusGeometry(r, t, 6, 18), m); o.position.set(x, y, z); o.rotation.y = rotY; root.add(o); return o; };
   // trigger and guard
-  if (fam !== 'p90') { const ty = info.pistol ? 0.008 : -0.014, tz = info.pistol ? -0.035 : -0.03; box(0.006, 0.022, 0.008, 0, ty, tz, S, 0.35); tor(0.018, 0.0028, 0, ty - 0.004, tz - 0.004, K); }
+  if (fam !== 'p90' && !info.model) { const ty = info.pistol ? 0.008 : -0.014, tz = info.pistol ? -0.035 : -0.03; box(0.006, 0.022, 0.008, 0, ty, tz, S, 0.35); tor(0.018, 0.0028, 0, ty - 0.004, tz - 0.004, K); }
   if (fam === 'ar' || fam === 'scar' || fam === 'mcx') {
     teeth(0.12, 0.04, 0.2); if (!has('optic')) teeth(0.112, -0.13, 0.2, 0.02);
     box(0.04, 0.012, 0.018, 0, 0.098, 0.088, K);                                             // charging handle
@@ -234,7 +279,7 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
     box(0.002, 0.02, 0.06, 0.027, 0.06, -0.04, D);
     for (let i = 0; i < 6; i++) box(0.052, 0.003, 0.006, 0, 0.07, -0.25 - i * 0.022, D);     // fore-end grooves
   }
-  if (longGun) cyl(0.004, 0.026, 0, -0.01, 0.2, S).rotation.set(0, 0, Math.PI / 2);          // rear sling swivel
+  if (longGun && !info.model) cyl(0.004, 0.026, 0, -0.01, 0.2, S).rotation.set(0, 0, Math.PI / 2);          // rear sling swivel
   function muzzleAtt() { return has('muzzle'); }
 
   // ---------- attachments ----------
@@ -295,11 +340,19 @@ function buildGun(id, { finish = 'black', att = [] } = {}) {
 }
 
 export function makeMelee(id) {
+  const MM = MODEL_MELEE[MELEE[id]?.model];
+  if (MM && ready.has(MM.id)) {
+    // the real thing: handle at the origin, blade up +Y
+    const P = parts(MM.id), b = bounds(P), g = new THREE.Group();
+    for (const p of P) { const m = new THREE.Mesh(p.geometry, p.material); m.castShadow = true; m.position.set(-(b.min.x + b.max.x) / 2, -(b.min.y + MM.grip), -(b.min.z + b.max.z) / 2); g.add(m); }
+    g.userData.melee = MELEE[id];
+    return g;
+  }
   const M = MELEE[id] || MELEE.fists, g = new THREE.Group(), K = black(), S = steel();
   const box = (w, h, d, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
   if (M.model === 'knife') { box(0.025, 0.11, 0.03, 0, 0, 0, K); box(0.06, 0.012, 0.03, 0, 0.06, 0, S); box(0.004, M.len, 0.03, 0, 0.065 + M.len / 2, 0, mat('blade', () => new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.95, roughness: 0.25 }))); }
   else if (M.model === 'shovel') { box(0.025, 0.45, 0.025, 0, 0.18, 0, mat('od', () => new THREE.MeshStandardMaterial({ color: 0x3e4430, roughness: 0.8 }))); box(0.16, 0.2, 0.01, 0, 0.5, 0, S); }
-  else if (M.model === 'hawk') { box(0.03, 0.36, 0.03, 0, 0.12, 0, K); box(0.012, 0.07, 0.13, 0, 0.28, -0.05, S); }
+  else if (M.model === 'hatchet' || M.model === 'hawk') { box(0.03, 0.36, 0.03, 0, 0.12, 0, K); box(0.012, 0.07, 0.13, 0, 0.28, -0.05, S); }
   else if (M.model === 'machete') { box(0.025, 0.13, 0.03, 0, 0, 0, K); box(0.004, 0.46, 0.045, 0, 0.3, 0, S); }
   g.userData.melee = M;
   return g;
